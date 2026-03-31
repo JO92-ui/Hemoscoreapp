@@ -16,7 +16,7 @@ See the **Disclosures** tab within the application for the complete ITA-MEX disc
 
 ## Architecture
 
-```
+```text
 Hemoscoreapp/
 ├── backend/            FastAPI (Python) — serves the PULSAR XGBoost model
 │   ├── app/            API routes, schemas, core inference logic
@@ -38,7 +38,7 @@ The `app/` desktop GUI is a standalone alternative shipped in the same repo.
 ## Prerequisites
 
 | Requirement | Version |
-|---|---|
+| --- | --- |
 | Python | ≥ 3.11 |
 | Node.js | ≥ 18 |
 | npm | ≥ 9 |
@@ -87,10 +87,11 @@ pip install -r backend/requirements.txt
 
 Verify it is running:
 
-```
+```http
 GET http://localhost:8000/health
-→ {"status":"ok","model_loaded":true}
 ```
+
+Expected response: `{"status":"ok","model_loaded":true}`
 
 ### 5. Install frontend dependencies
 
@@ -119,7 +120,7 @@ The app opens at **http://localhost:3000** (or the next available port).
 The frontend reads one optional variable:
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` | FastAPI backend URL |
 
 Create `frontend/.env.local` to override:
@@ -133,7 +134,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ## Model: PULSAR XGBoost
 
 | Property | Value |
-|---|---|
+| --- | --- |
 | Algorithm | XGBoost (gradient boosted trees) |
 | Task | Binary classification — in-hospital mortality |
 | Input features | 32 clinical variables |
@@ -144,7 +145,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 Risk is reported in four tiers:
 
 | Tier | Probability |
-|---|---|
+| --- | --- |
 | Low | < 10 % |
 | Intermediate | 10 – < 25 % |
 | High | 25 – < 50 % |
@@ -198,7 +199,7 @@ npm run build
 **ITA-MEX Collaborative Group**
 
 | Author | Affiliation |
-|---|---|
+| --- | --- |
 | Jorge Ortega-Hernández *(Corresponding)* | INCICH / IPN, Mexico |
 | Giulio Govoni | University of Ferrara, Italy |
 | Iratxe Zarragoikoetxea | La Fe University Hospital, Spain |
