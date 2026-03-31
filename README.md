@@ -111,7 +111,7 @@ npm run build
 npm start
 ```
 
-The app opens at **http://localhost:3000** (or the next available port).
+The app opens at `http://localhost:3000` (or the next available port).
 
 ---
 
@@ -196,7 +196,7 @@ npm run build
 
 ## Authors
 
-**ITA-MEX Collaborative Group**
+### ITA-MEX Collaborative Group
 
 | Author | Affiliation |
 | --- | --- |
