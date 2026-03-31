@@ -6,18 +6,27 @@ All paths are resolved at import time relative to the project root,
 so the app works regardless of the working directory it is launched from.
 """
 
+import sys
 from pathlib import Path
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Project root  (two levels up from this file: app/config.py → app/ → root)
+# Project root — handles both normal execution and PyInstaller frozen bundles.
+# When frozen, sys._MEIPASS is the temp folder where PyInstaller extracts data.
+# Exports are written next to the .exe so they survive across runs.
 # ──────────────────────────────────────────────────────────────────────────────
-BASE_DIR: Path = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    # Running as a PyInstaller bundle
+    BASE_DIR: Path = Path(sys._MEIPASS)          # type: ignore[attr-defined]
+    EXPORTS_DIR: Path = Path(sys.executable).parent / "exports"
+else:
+    # Normal Python execution
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    EXPORTS_DIR = BASE_DIR / "exports"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Directory layout
 # ──────────────────────────────────────────────────────────────────────────────
 APPDATA_DIR: Path = BASE_DIR / "appdata"
-EXPORTS_DIR: Path = BASE_DIR / "exports"
 
 # Ensure the exports directory exists at startup
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
