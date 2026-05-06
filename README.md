@@ -6,6 +6,79 @@ A local, offline-capable clinical decision-support tool for estimating in-hospit
 
 ---
 
+## ⬇️ Download & Run — No Installation Required
+
+> **You do NOT need Python, Node.js, or any development tools.**  
+> Just download, unzip, and double-click.
+
+---
+
+### Step 1 — Open the Releases page
+
+[![⬇ Download Latest Release](https://img.shields.io/badge/⬇%20Download%20Latest%20Release-2ea44f?style=for-the-badge&logo=github)](https://github.com/JO92-ui/Hemoscoreapp/releases/latest)
+
+👉 **[https://github.com/JO92-ui/Hemoscoreapp/releases/latest](https://github.com/JO92-ui/Hemoscoreapp/releases/latest)**
+
+---
+
+### Step 2 — Download the correct file
+
+Scroll down to the **Assets** section and click the `.zip` file:
+
+```
+Assets
+──────────────────────────────────────────────────────
+  📦  HEMOSCOREAPP_WEB.zip          ← ✅ DOWNLOAD THIS
+  📄  Source code (zip)             ← ❌ NOT this
+  📄  Source code (tar.gz)          ← ❌ NOT this
+```
+
+> ⚠️ **Do NOT download "Source code"** — those are raw source files that require a full development environment to run. Always download the `.zip` labelled `HEMOSCOREAPP_WEB`.
+
+---
+
+### Step 3 — Extract the ZIP
+
+| OS | How to extract |
+|---|---|
+| **Windows** | Right-click the `.zip` file → **Extract All…** → choose a destination → click **Extract** |
+| **macOS** | Double-click the `.zip` file — macOS extracts it automatically |
+
+> 💡 **Tip:** Extract to a permanent folder (e.g. `Documents\HEMOSCOREAPP`), not directly from inside the ZIP.
+
+---
+
+### Step 4 — Run the application
+
+Inside the extracted folder, double-click **`HEMOSCOREAPP.exe`**:
+
+```
+📁 HEMOSCOREAPP_WEB\
+    ├── 📄 HEMOSCOREAPP.exe    ← double-click to launch
+    ├── 📁 _internal\
+    └── ...
+```
+
+The app will open automatically in your default web browser at `http://localhost:8000`.
+
+> ⚠️ **Windows SmartScreen warning?** If Windows shows *"Windows protected your PC"*, click **More info** → **Run anyway**. This is expected for unsigned executables and is safe.
+
+> ⚠️ **Antivirus alert?** Some antivirus programs flag PyInstaller-packaged `.exe` files as suspicious. This is a false positive. You can verify the file via the [VirusTotal link in the release notes](https://github.com/JO92-ui/Hemoscoreapp/releases/latest) if needed.
+
+---
+
+### ✅ That's it — no setup, no terminal, no code
+
+| What you **don't** need | What you **do** need |
+|---|---|
+| Python | Windows 10/11 (64-bit) |
+| Node.js / npm | ~300 MB free disk space |
+| Git | A modern web browser (Chrome, Edge, Firefox) |
+| Any command-line knowledge | |
+
+---
+
+
 ## ⚠️ Intended Use & Disclaimer
 
 HEMOSCOREAPP is provided **for research and educational purposes only**. It is **not** a certified medical device and has **not** received regulatory clearance (FDA, CE, COFEPRIS, or equivalent). It must not be used as the sole or primary basis for clinical decisions. All predictions must be interpreted by qualified medical personnel in conjunction with full clinical assessment.
