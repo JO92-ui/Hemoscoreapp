@@ -290,7 +290,6 @@ interface InputPanelProps {
   metadata:      MetadataResponse | null;
   clinicalInputs: Record<string, number | null>;
   loadingAction: "predict" | "compare" | "testcase" | null;
-  hasResult:     boolean;
   onClinicalChange:  (field: string, value: number | null) => void;
   onCalculateRisk:   () => void;
   onLoadTestCase:    () => void;
@@ -305,7 +304,6 @@ export default function InputPanel({
   metadata,
   clinicalInputs,
   loadingAction,
-  hasResult,
   onClinicalChange,
   onCalculateRisk,
   onLoadTestCase,

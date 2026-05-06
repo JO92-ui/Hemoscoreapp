@@ -1,6 +1,7 @@
 """Smoke test for the HEMOSCOREAPP backend."""
 import sys
-sys.path.insert(0, r"c:\Users\jorge\Desktop\Hemoscoreapp")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # ── 1. Core bridge ────────────────────────────────────────────────────────────
 from backend.app.core import InferenceService, PredictionResult, ComparisonResult

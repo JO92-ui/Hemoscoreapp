@@ -113,3 +113,27 @@ app.include_router(routes_health.router)
 app.include_router(routes_metadata.router)
 app.include_router(routes_predict.router)
 app.include_router(routes_compare.router)
+
+# ── Static frontend (Next.js export) ──────────────────────────────────────────
+# Mounted last so it never shadows API routes.
+# In frozen (PyInstaller) mode the static files are in _MEIPASS/frontend_out/.
+# In development they live in frontend/out/ relative to the project root.
+
+def _resolve_frontend_out() -> "Path | None":
+    import sys
+    from pathlib import Path
+
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys._MEIPASS) / "frontend_out"
+    else:
+        # backend/app/main.py → backend/app/ → backend/ → project root
+        candidate = Path(__file__).resolve().parent.parent.parent / "frontend" / "out"
+
+    return candidate if candidate.is_dir() else None
+
+
+_frontend_out = _resolve_frontend_out()
+if _frontend_out is not None:
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(_frontend_out), html=True), name="frontend")

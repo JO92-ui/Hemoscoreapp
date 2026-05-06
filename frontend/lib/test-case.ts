@@ -1,9 +1,9 @@
 /**
  * Rich multi-timepoint test case for UI demonstration.
  *
- * Clinical scenario: 63-year-old male, AMI-CS, SCAI E on admission.
- * Haemodynamics show a clear improving trajectory (all 6 variables cross
- * their clinical thresholds over the 48-hour monitoring window).
+ * Clinical scenario: 63-year-old male, AMI-CS, SCAI C on admission.
+ * Typical trajectory: initial deterioration to SCAI D at 6–12 h,
+ * then progressive recovery to SCAI C by 24–48 h with IABP support.
  *
  * Timepoints: baseline (0 h) → 6 h → 12 h → 24 h → 48 h
  *
@@ -22,18 +22,19 @@ import type { SeriesState, ScaiValues, SupportSeries } from "@/lib/series";
 export function makeTestCaseSeries(): SeriesState {
   return {
     //            baseline    6h      12h     24h     48h
-    hr:      { baseline: 108, "6h": 103, "12h":  98, "24h":  95, "48h":  92 },
-    cpi_rap: { baseline: 0.18,"6h": 0.22, "12h": 0.28,"24h": 0.32,"48h": 0.35 },
-    lactate: { baseline: 4.8, "6h": 3.6,  "12h": 2.8, "24h": 2.1, "48h": 1.9  },
-    pawp:    { baseline: 26,  "6h": 23,   "12h": 21,  "24h": 19,  "48h": 17   },
-    rap:     { baseline: 20,  "6h": 17,   "12h": 15,  "24h": 13,  "48h": 11   },
-    opp:     { baseline: 43,  "6h": 52,   "12h": 60,  "24h": 66,  "48h": 71   },
+    hr:      { baseline: 110, "6h": 116, "12h": 108, "24h": 100, "48h":  92 },
+    cpi_rap: { baseline: 0.20,"6h": 0.17, "12h": 0.23,"24h": 0.29,"48h": 0.35 },
+    lactate: { baseline: 3.4, "6h": 3.9,  "12h": 2.9, "24h": 2.2, "48h": 1.9  },
+    pawp:    { baseline: 24,  "6h": 27,   "12h": 23,  "24h": 20,  "48h": 17   },
+    rap:     { baseline: 15,  "6h": 18,   "12h": 15,  "24h": 13,  "48h": 11   },
+    opp:     { baseline: 52,  "6h": 44,   "12h": 57,  "24h": 64,  "48h": 71   },
   };
 }
 
-/** Returns a fresh ScaiValues with baseline and 48 h set. */
+/** Returns a fresh ScaiValues with all 5 timepoints set.
+ *  Trajectory: C → D → D → C → C (typical AMI-CS worsening then recovery). */
 export function makeTestCaseScai(): ScaiValues {
-  return { baseline: 5, "6h": null, "12h": null, "24h": null, "48h": 5 };
+  return { baseline: 3, "6h": 4, "12h": 4, "24h": 3, "48h": 3 };
 }
 
 /** Support-device time series for the test case.

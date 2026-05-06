@@ -43,11 +43,17 @@ if str(_PROJECT_ROOT) not in sys.path:
 # ── 2. Inject backend config as app.config (must happen BEFORE any app.core
 #        import; model_loader.py imports app.config at module level) ──────────
 
-_config_path = _BACKEND_APP / "config.py"
-_spec = importlib.util.spec_from_file_location("app.config", str(_config_path))
-_backend_config_module = importlib.util.module_from_spec(_spec)
-sys.modules["app.config"] = _backend_config_module
-_spec.loader.exec_module(_backend_config_module)
+if getattr(sys, "frozen", False):
+    # Frozen (PyInstaller): .py files are compiled into the exe archive;
+    # use normal importlib instead of the file-path approach.
+    _backend_config_module = importlib.import_module("backend.app.config")
+    sys.modules["app.config"] = _backend_config_module
+else:
+    _config_path = _BACKEND_APP / "config.py"
+    _spec = importlib.util.spec_from_file_location("app.config", str(_config_path))
+    _backend_config_module = importlib.util.module_from_spec(_spec)
+    sys.modules["app.config"] = _backend_config_module
+    _spec.loader.exec_module(_backend_config_module)
 
 
 # ── 3. Import public inference API ────────────────────────────────────────────

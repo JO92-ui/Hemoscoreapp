@@ -2,7 +2,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import Header from "@/components/header";
 import Footer from "@/components/footer";
@@ -170,10 +169,21 @@ function reducer(state: State, action: Action): State {
           if (updated[tp] === null) updated[tp] = action.value;
         }
       }
-      return { ...state, support: { ...state.support, [sv]: updated } };
+      // Mirror baseline value into clinicalInputs so the filled-fields counter
+      // reflects support devices set via SeriesPanel.
+      const patchedClinical = action.timepoint === "baseline"
+        ? { ...state.clinicalInputs, [sv]: action.value }
+        : state.clinicalInputs;
+      return { ...state, support: { ...state.support, [sv]: updated }, clinicalInputs: patchedClinical };
     }
-    case "SET_SUPPORT":
-      return { ...state, support: action.payload };
+    case "SET_SUPPORT": {
+      // Extract baseline values into clinicalInputs so the counter sees all 11 fields.
+      const supportClinical: Record<string, number | null> = {};
+      for (const k of Object.keys(action.payload) as (keyof SupportSeries)[]) {
+        supportClinical[k] = action.payload[k].baseline ?? null;
+      }
+      return { ...state, support: action.payload, clinicalInputs: { ...state.clinicalInputs, ...supportClinical } };
+    }
 
     case "SET_RESULT":
       return { ...state, currentResult: action.payload, error: null };
@@ -255,7 +265,6 @@ async function buildTimepointRisks(
 // =============================================================================
 
 export default function HomePage() {
-  const router = useRouter();
   const { isLoading: authLoading, isAuthenticated } = useAuth();
 
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -549,7 +558,7 @@ export default function HomePage() {
     } finally {
       dispatch({ type: "DONE_LOADING" });
     }
-  }, [state.series, state.scai, state.clinicalInputs]);
+  }, [state.series, state.scai, state.clinicalInputs, state.support]);
 
   const handleIgnoreDrift = useCallback(() => {
     dispatch({ type: "DISMISS_DRIFT" });
@@ -949,7 +958,6 @@ export default function HomePage() {
               metadata={state.metadata}
               clinicalInputs={state.clinicalInputs}
               loadingAction={state.loadingAction}
-              hasResult={!!state.currentResult}
               onClinicalChange={handleClinicalChange}
               onCalculateRisk={handleCalculateRisk}
               onLoadTestCase={handleLoadTestCase}
@@ -997,7 +1005,6 @@ export default function HomePage() {
               <ResultPanel
                 result={state.timepointRisks[selectedTp]!}
                 timepointLabel={TP_LABELS[selectedTp]}
-                metadata={state.metadata}
               />
             )}
 

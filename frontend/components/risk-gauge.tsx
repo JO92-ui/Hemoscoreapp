@@ -1,6 +1,7 @@
 ﻿// FILE: frontend/components/risk-gauge.tsx
 "use client";
 
+import { useId } from "react";
 import clsx from "clsx";
 import type { RiskCategory } from "@/lib/types";
 
@@ -64,13 +65,6 @@ const ZONE_ARCS: [number, number, string][] = [
 // Zone-boundary tick fractions (10 %, 25 %, 50 %)
 const TICK_FRACTIONS = [0.10, 0.25, 0.50];
 
-// Bottom linear-bar bands
-const BAR_BANDS = [
-  { upperPct: 10,  colorCls: "bg-emerald-900/50" },
-  { upperPct: 25,  colorCls: "bg-amber-900/50"   },
-  { upperPct: 50,  colorCls: "bg-red-900/50"     },
-  { upperPct: 100, colorCls: "bg-rose-950/60"    },
-];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -129,6 +123,8 @@ export default function RiskGauge({
 
   const textCls = size === "lg" ? "text-4xl" : size === "sm" ? "text-xl" : "text-3xl";
 
+  const uid          = useId();
+  const clipId        = `gauge-bar-clip-${uid.replace(/:/g, "")}`;
   const wrapperSizeCls = size === "lg" ? "w-[176px] h-[176px]" : size === "sm" ? "w-[108px] h-[108px]" : "w-[140px] h-[140px]";
   const barWidthCls    = size === "lg" ? "w-[176px]" : size === "sm" ? "w-[108px]" : "w-[140px]";
 
@@ -223,11 +219,11 @@ export default function RiskGauge({
       <div className={barWidthCls}>
         <svg width="100%" height="8" aria-hidden="true">
           <defs>
-            <clipPath id={`gauge-bar-clip-${size}`}>
+            <clipPath id={clipId}>
               <rect x="0" y="0" width="100%" height="8" rx="4" />
             </clipPath>
           </defs>
-          <g clipPath={`url(#gauge-bar-clip-${size})`}>
+          <g clipPath={`url(#${clipId})`}>
             <rect x="0%"  y="0" width="10%" height="8" fill="rgba(6,78,59,0.35)"   />
             <rect x="10%" y="0" width="15%" height="8" fill="rgba(120,53,15,0.35)" />
             <rect x="25%" y="0" width="25%" height="8" fill="rgba(127,29,29,0.35)" />

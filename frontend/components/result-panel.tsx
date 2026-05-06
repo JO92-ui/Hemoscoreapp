@@ -9,14 +9,10 @@ import {
   Clock,
   Database,
   Info,
-  Minus,
-  TrendingDown,
-  TrendingUp,
 } from "lucide-react";
 import clsx from "clsx";
 import RiskGauge from "@/components/risk-gauge";
 import type {
-  MetadataResponse,
   PredictResponse,
   RiskCategory,
 } from "@/lib/types";
@@ -252,13 +248,11 @@ function TopFactorsSection({ explanation }: { explanation: ExplanationType }) {
 interface ResultPanelProps {
   result:           PredictResponse;
   timepointLabel?:  string;
-  metadata?:        MetadataResponse | null;
 }
 
 export default function ResultPanel({
   result,
   timepointLabel,
-  metadata: _metadata,
 }: ResultPanelProps) {
   const {
     risk_result,

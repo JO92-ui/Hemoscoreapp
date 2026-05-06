@@ -17,16 +17,22 @@ directory:
 """
 
 from pathlib import Path
+import sys
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Directories
 # ──────────────────────────────────────────────────────────────────────────────
 
-# backend/app/config.py  →  backend/app/  →  backend/
-BASE_DIR:    Path = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    # PyInstaller frozen exe: data files land in _MEIPASS/backend/appdata
+    BASE_DIR:    Path = Path(sys._MEIPASS) / "backend"
+    EXPORTS_DIR: Path = Path(sys.executable).parent / "exports"
+else:
+    # backend/app/config.py  →  backend/app/  →  backend/
+    BASE_DIR:    Path = Path(__file__).resolve().parent.parent
+    EXPORTS_DIR: Path = BASE_DIR / "exports"
 
 APPDATA_DIR: Path = BASE_DIR / "appdata"
-EXPORTS_DIR: Path = BASE_DIR / "exports"
 
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
