@@ -48,6 +48,44 @@ The `app/` desktop GUI is a standalone alternative shipped in the same repo.
 
 ---
 
+## Forcing CPU-only Execution
+
+The standard `pip install xgboost` package has no GPU support, so inference runs on CPU by default.  
+If you have a CUDA-capable GPU and a GPU-enabled XGBoost build installed, use one of the following methods to ensure the model stays on CPU.
+
+**Option A — hide GPUs via environment variable (recommended)**
+
+Set `CUDA_VISIBLE_DEVICES` to an empty string before starting the backend.  
+This makes all GPUs invisible to any CUDA-aware library (XGBoost, NumPy, etc.).
+
+```bash
+# Windows (PowerShell)
+$env:CUDA_VISIBLE_DEVICES = ""
+.venv\Scripts\uvicorn backend.app.main:app --port 8000
+
+# Windows (CMD)
+set CUDA_VISIBLE_DEVICES=
+.venv\Scripts\uvicorn backend.app.main:app --port 8000
+
+# macOS / Linux
+CUDA_VISIBLE_DEVICES="" .venv/bin/uvicorn backend.app.main:app --port 8000
+```
+
+**Option B — install the CPU-only wheel explicitly**
+
+```bash
+pip uninstall xgboost -y
+pip install xgboost   # always resolves to the CPU wheel from PyPI
+```
+
+> You can verify which device XGBoost will use at runtime:
+> ```python
+> import xgboost as xgb; print(xgb.__version__)
+> ```
+> As long as you did **not** install `xgboost-gpu` or a CUDA build, inference is CPU-only regardless of hardware.
+
+---
+
 ## Quick Start
 
 ### 1. Clone the repository
@@ -167,6 +205,49 @@ python run_app.py
 
 ---
 
+## Distributing to a Client (Windows Standalone Exe)
+
+The app can be packaged into a single folder (`dist/HEMOSCOREAPP_WEB/`) that
+the client runs with **no Python, no Node.js, and no internet connection**
+required.  Everything — backend, model, and frontend — is bundled inside.
+
+### Step 1 — Build the Next.js static export (run once, or after any frontend change)
+
+```powershell
+cd frontend
+$env:NEXT_EXPORT = "1"
+npm run build        # outputs to frontend/out/
+cd ..
+```
+
+### Step 2 — Build the Windows executable with PyInstaller
+
+```powershell
+# From the repo root, with the virtual environment active
+pip install pyinstaller          # only needed the first time
+pyinstaller hemoscoreapp_web.spec --clean
+```
+
+The output is `dist\HEMOSCOREAPP_WEB\` (a folder, **not** a single file).
+
+> `dist/` is listed in `.gitignore` and will never be committed to the repository.
+
+### Step 3 — Deliver to the client
+
+1. Compress `dist\HEMOSCOREAPP_WEB\` into a ZIP archive.
+2. Send the ZIP to the client (USB drive, file transfer, etc.).
+
+### Client installation (what you tell the client)
+
+1. Unzip the archive anywhere (e.g. `C:\HEMOSCOREAPP_WEB\`).
+2. Double-click **`HEMOSCOREAPP.exe`** inside that folder.
+3. The app opens automatically in the default browser at `http://localhost:8000`.
+4. Close the terminal window (or the exe in the system tray) to shut down the server.
+
+> No Python, Node.js, or any other software needs to be installed on the client machine.
+
+---
+
 ## Development
 
 ### Run backend smoke tests
@@ -197,14 +278,6 @@ npm run build
 ## Authors
 
 ### ITA-MEX Collaborative Group
-
-| Author | Affiliation |
-| --- | --- |
-| Jorge Ortega-Hernández *(Corresponding)* | INCICH / IPN, Mexico |
-| Giulio Govoni | University of Ferrara, Italy |
-| Iratxe Zarragoikoetxea | La Fe University Hospital, Spain |
-| Diana A. Gopar-Nieto | INCICH, Mexico |
-| Diego Araiza-Garaygordobil | INCICH, Mexico |
 
 ---
 
