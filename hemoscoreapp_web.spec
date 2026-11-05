@@ -17,6 +17,9 @@ a = Analysis(
         ("backend/appdata", "backend/appdata"),
         # Next.js static export (HTML / CSS / JS / fonts)
         ("frontend/out", "frontend_out"),
+        # Notices for the app and its bundled Inter font.
+        ("LICENSE", "licenses"),
+        ("frontend/app/fonts/OFL.txt", "licenses"),
         # XGBoost Python package data (VERSION file, etc.)
         (r".venv\Lib\site-packages\xgboost", "xgboost"),
     ],

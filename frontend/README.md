@@ -2,7 +2,7 @@
 
 > Cardiogenic Shock Risk Dashboard · Next.js 14 · TypeScript · Tailwind CSS
 
-A dark-mode clinical decision-support interface that connects to the HEMOSCOREAPP FastAPI backend to calculate, display, and compare XGBoost-based cardiogenic shock risk scores.
+A research interface that connects to the HEMOSCOREAPP FastAPI backend to calculate, display, and compare retrospective PULSAR risk estimates in cardiogenic shock.
 
 ---
 

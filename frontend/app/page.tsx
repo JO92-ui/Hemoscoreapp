@@ -14,19 +14,17 @@ import BaselineReview from "@/components/baseline-review";
 import InfluencePanel from "@/components/influence-panel";
 import TimepointRisksPanel from "@/components/timepoint-risks-panel";
 import { fetchMetadata, predict, compare } from "@/lib/api";
-import { makeTestCaseSeries, makeTestCaseScai, makeTestCaseSupportSeries, TEST_CASE_CLINICAL } from "@/lib/test-case";
+import { makeSyntheticCase, SYNTHETIC_CASES, type SyntheticCaseId } from "@/lib/test-case";
 import {
   emptySeriesState,
   emptyScaiValues,
   emptySupportSeries,
   computeAll,
-  computeScaiDerived,
   computeAllUpTo,
-  computeScaiDerivedUpTo,
   hasDataAtTimepoint,
   derivedToFeatures,
-  scaiToFeatures,
-  supportToFeaturesAtTimepoint,
+  episodeToFeatures,
+  CLINICAL_FEATURE_NAMES,
   HEMO_VARS,
   TIMEPOINTS,
   TP_LABELS,
@@ -37,6 +35,7 @@ import {
   type SupportSeries,
   type SupportVar,
 } from "@/lib/series";
+import { hasMatchingModelVersion, timepointRisksForModel } from "@/lib/types";
 import type {
   BaselineRaw,
   BaselineSnapshot,
@@ -97,11 +96,12 @@ type Action =
   | { type: "PATCH_SUPPORT";        device: SupportVar; timepoint: Timepoint; value: number | null }
   | { type: "SET_SUPPORT";          payload: SupportSeries }
   | { type: "SET_RESULT";           payload: PredictResponse }
-  | { type: "SET_COMPARE";          payload: CompareResponse }
+  | { type: "SET_COMPARE";          payload: CompareResponse | null; baseline?: BaselineSnapshot }
   | { type: "SET_BASELINE";         payload: BaselineSnapshot }
   | { type: "CLEAR_BASELINE" }
   | { type: "DISMISS_DRIFT" }
   | { type: "SET_TIMEPOINT_RISKS";  payload: TimepointRisks }
+  | { type: "RESTORE_PATIENT";      payload: PatientRecord }
   | { type: "RESET" }
   | { type: "LOADING";              action: State["loadingAction"] }
   | { type: "DONE_LOADING" }
@@ -188,7 +188,7 @@ function reducer(state: State, action: Action): State {
     case "SET_RESULT":
       return { ...state, currentResult: action.payload, error: null };
     case "SET_COMPARE":
-      return { ...state, compareResult: action.payload, error: null };
+      return { ...state, compareResult: action.payload, baseline: action.baseline ?? state.baseline, error: null };
     case "SET_BASELINE":
       return { ...state, baseline: action.payload, baselineRaw: action.payload.rawInputs };
     case "CLEAR_BASELINE":
@@ -199,6 +199,24 @@ function reducer(state: State, action: Action): State {
       return { ...state, baselineRaw: null };
     case "SET_TIMEPOINT_RISKS":
       return { ...state, timepointRisks: action.payload };
+
+    case "RESTORE_PATIENT": {
+      const record = action.payload;
+      return {
+        ...state,
+        series: record.series,
+        scai: record.scai,
+        support: record.support,
+        clinicalInputs: record.clinical_inputs,
+        currentResult: record.current_result ?? null,
+        compareResult: null,
+        baseline: record.baseline ?? null,
+        baselineRaw: record.baseline_raw ?? null,
+        timepointRisks: record.timepoint_risks ?? {},
+        loadingAction: null,
+        error: null,
+      };
+    }
 
     case "RESET":
       return {
@@ -230,9 +248,35 @@ function reducer(state: State, action: Action): State {
 // Per-timepoint risk helper (module-level — uses only imported functions)
 // =============================================================================
 
+function fixedEpisodeInputs(
+  scai: ScaiValues,
+  clinicalInputs: Record<string, number | null>,
+  support: SupportSeries,
+): Record<string, number | null> {
+  const fixed = episodeToFeatures(scai, support);
+  for (const field of CLINICAL_FEATURE_NAMES) {
+    if (!(field in fixed)) fixed[field] = clinicalInputs[field] ?? null;
+  }
+  return fixed;
+}
+
+function checkPredictionVersion(result: PredictResponse, version: string | null | undefined): void {
+  if (!hasMatchingModelVersion(result.model_version, version)) {
+    throw new Error("The prediction does not match the loaded model version. Reload the dashboard and try again.");
+  }
+}
+
+function usesEpisodeInputs(
+  features: Record<string, number>,
+  episode: Record<string, number | null>,
+  defaults: Record<string, number> | undefined,
+): boolean {
+  return Object.entries(episode).every(([field, value]) => features[field] === (value ?? defaults?.[field]));
+}
+
 /**
- * For each timepoint that has at least one haemodynamic value, build the
- * feature vector using ONLY data up to that timepoint and call POST /predict.
+ * For each timepoint with a haemodynamic measurement, use haemodynamics
+ * through that timepoint and the same retrospective episode features.
  * All calls are made in parallel; failed timepoints are silently skipped.
  */
 async function buildTimepointRisks(
@@ -240,20 +284,22 @@ async function buildTimepointRisks(
   scai: ScaiValues,
   clinicalInputs: Record<string, number | null>,
   support: SupportSeries,
+  modelVersion: string,
 ): Promise<TimepointRisks> {
   const out: TimepointRisks = {};
+  const episode = fixedEpisodeInputs(scai, clinicalInputs, support);
   await Promise.all(
     TIMEPOINTS
       .filter((tp) => hasDataAtTimepoint(series, tp))
       .map((tp) => {
         const features = {
           ...derivedToFeatures(computeAllUpTo(series, tp)),
-          ...scaiToFeatures(computeScaiDerivedUpTo(scai, tp)),
-          ...clinicalInputs,
-          ...supportToFeaturesAtTimepoint(support, tp),
+          ...episode,
         };
         return predict(features, false)
-          .then((r) => { out[tp] = r; })
+          .then((r) => {
+            if (hasMatchingModelVersion(r.model_version, modelVersion)) out[tp] = r;
+          })
           .catch(() => { /* skip failed timepoints */ });
       }),
   );
@@ -269,18 +315,43 @@ export default function HomePage() {
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const isLoading = state.loadingAction !== null;
+  const modelVersion = state.metadata?.model_version;
+  const modelDefaults = state.metadata?.imputation_defaults;
+  const compatibleBaseline = hasMatchingModelVersion(state.baseline?.modelVersion, modelVersion)
+    ? state.baseline : null;
+  const episodeInputs = useMemo(
+    () => fixedEpisodeInputs(state.scai, state.clinicalInputs, state.support),
+    [state.scai, state.clinicalInputs, state.support],
+  );
+  const visibleBaseline = compatibleBaseline && usesEpisodeInputs(
+    compatibleBaseline.featureMap, episodeInputs, modelDefaults,
+  ) ? compatibleBaseline : null;
+  const versionedTimeline = useMemo(
+    () => timepointRisksForModel(state.timepointRisks, modelVersion),
+    [state.timepointRisks, modelVersion],
+  );
+  const visibleTimepointRisks = useMemo<TimepointRisks>(() => Object.fromEntries(
+    Object.entries(versionedTimeline).filter(([, risk]) =>
+      risk && usesEpisodeInputs(risk.feature_dict, episodeInputs, modelDefaults)),
+  ), [versionedTimeline, episodeInputs, modelDefaults]);
+  const currentResult = state.currentResult &&
+    hasMatchingModelVersion(state.currentResult.model_version, modelVersion) &&
+    usesEpisodeInputs(state.currentResult.feature_dict, episodeInputs, modelDefaults) ? state.currentResult : null;
   const [activeView, setActiveView] = useState<"clinical" | "insights" | "disclosures" | "copyright">("clinical");
   const [selectedTp, setSelectedTp] = useState<Timepoint | null>(null);
+  const visibleSelectedTp = selectedTp && visibleTimepointRisks[selectedTp] ? selectedTp : null;
 
   // ── Patient management state ──────────────────────────────────────────────
   const [patientId,        setPatientId]        = useState<string>(() => generateId());
   const [patientName,      setPatientName]      = useState<string | null>(null);
   const [hospitalId,       setHospitalId]       = useState<string | null>(null);
-  const [notes,            setNotes]            = useState<string | null>(null);          // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [notes,            setNotes]            = useState<string | null>(null);
   const [saveStatus,       setSaveStatus]       = useState<SaveStatus>("idle");
   const [lastSavedAt,      setLastSavedAt]      = useState<string | null>(null);
   const [showPatientList,  setShowPatientList]  = useState(false);
   const patientCreatedAt = useRef<string>(new Date().toISOString());
+  const patientSession = useRef(0);
+  const restoredInputs = useRef<Pick<PatientRecord, "series" | "scai" | "support" | "clinical_inputs"> | null>(null);
 
   // ── Default folder handles (File System Access API) ───────────────────────
   const [patientsFolder, setPatientsFolder] = useState<FileSystemDirectoryHandle | null>(null);
@@ -289,12 +360,10 @@ export default function HomePage() {
   // Auto-select baseline when timepoint risks first compute
   useEffect(() => {
     setSelectedTp((curr) => {
-      if (curr !== null) return curr;
-      const first = TIMEPOINTS.find((tp) => state.timepointRisks[tp] != null) ?? null;
-      return first;
+      if (curr !== null && visibleTimepointRisks[curr]) return curr;
+      return TIMEPOINTS.find((tp) => visibleTimepointRisks[tp] != null) ?? curr;
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.timepointRisks]);
+  }, [visibleTimepointRisks]);
 
   // ── Load stored folder handles from IndexedDB on first mount ─────────────
   useEffect(() => {
@@ -303,23 +372,29 @@ export default function HomePage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live per-timepoint risk — auto-compute on input change (debounced) ────
-  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+    const restored = restoredInputs.current;
+    if (restored && restored.series === state.series && restored.scai === state.scai &&
+        restored.support === state.support && restored.clinical_inputs === state.clinicalInputs) return;
+    restoredInputs.current = null;
     const hasAny = TIMEPOINTS.some((tp) => hasDataAtTimepoint(state.series, tp));
-    if (!hasAny) return;
-    liveTimerRef.current = setTimeout(async () => {
+    if (!hasAny || !modelVersion) return;
+    const session = patientSession.current;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
       try {
-        const tpRisks = await buildTimepointRisks(state.series, state.scai, state.clinicalInputs, state.support);
-        if (Object.keys(tpRisks).length > 0) {
+        const tpRisks = await buildTimepointRisks(state.series, state.scai, state.clinicalInputs, state.support, modelVersion);
+        if (!cancelled && session === patientSession.current && Object.keys(tpRisks).length > 0) {
           dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
         }
       } catch { /* silent */ }
     }, 600);
-    return () => { if (liveTimerRef.current) clearTimeout(liveTimerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.series, state.scai, state.clinicalInputs, state.support]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [state.series, state.scai, state.clinicalInputs, state.support, modelVersion]);
 
   // ── Autosave to IndexedDB (debounced 1 500 ms after any input change) ─────
   useEffect(() => {
@@ -342,7 +417,7 @@ export default function HomePage() {
           hospital_id:     hospitalId,
           created_at:      patientCreatedAt.current,
           updated_at:      now,
-          notes:           null,
+          notes,
           series:          state.series,
           scai:            state.scai,
           support:         state.support,
@@ -371,7 +446,7 @@ export default function HomePage() {
   }, [
     state.series, state.scai, state.support, state.clinicalInputs,
     state.baseline, state.baselineRaw, state.timepointRisks, state.currentResult,
-    selectedTp, patientId, patientName, hospitalId, patientsFolder,
+    selectedTp, patientId, patientName, hospitalId, notes, patientsFolder,
   ]);
 
   // ── Load metadata on mount ────────────────────────────────────────────────
@@ -418,9 +493,7 @@ export default function HomePage() {
     const derived = computeAll(series);
     return {
       ...derivedToFeatures(derived),
-      ...scaiToFeatures(computeScaiDerived(scai)),
-      ...clinicalInputs,
-      ...supportToFeaturesAtTimepoint(support, "48h"),
+      ...fixedEpisodeInputs(scai, clinicalInputs, support),
     };
   }
 
@@ -451,55 +524,23 @@ export default function HomePage() {
     return false;
   }, [state.series, state.scai, state.clinicalInputs, state.baselineRaw, state.baseline]);
 
-  // ── Load test case ────────────────────────────────────────────────────────
-  const handleLoadTestCase = useCallback(async () => {
-    dispatch({ type: "LOADING", action: "testcase" });
-    try {
-      // Populate form with rich 5-timepoint test case
-      const newSeries      = makeTestCaseSeries();
-      const newScai        = makeTestCaseScai();
-      const clinicalInputs = { ...TEST_CASE_CLINICAL };
-      const newSupport     = makeTestCaseSupportSeries();
-
-      dispatch({ type: "SET_CLINICAL", payload: clinicalInputs });
-      dispatch({ type: "SET_SCAI",     payload: newScai });
-      dispatch({ type: "SET_SERIES",   payload: newSeries });
-      dispatch({ type: "SET_SUPPORT",  payload: newSupport });
-
-      // Predict from the rich inputs and auto-save baseline
-      const allInputs = buildFeatureMap(newSeries, newScai, clinicalInputs, newSupport);
-      const result    = await predict(allInputs, true);
-      dispatch({ type: "SET_RESULT", payload: result });
-
-      const snap: BaselineSnapshot = {
-        featureMap:     result.feature_dict,
-        clinicalInputs: { ...clinicalInputs },
-        rawInputs:      buildBaselineRaw(newSeries, newScai, clinicalInputs),
-        risk:           result.risk_result,
-        savedAt:        new Date().toISOString(),
-      };
-      dispatch({ type: "SET_BASELINE", payload: snap });
-
-      // Compute per-timepoint risks in parallel
-      const tpRisks = await buildTimepointRisks(newSeries, newScai, clinicalInputs, newSupport);
-      dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
-    } catch (e: unknown) {
-      dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
-    } finally {
-      dispatch({ type: "DONE_LOADING" });
-    }
-  }, []);
-
   // ── Calculate Risk ────────────────────────────────────────────────────────
   // • No baseline yet  → predict + auto-save baseline
   // • Baseline exists  → compare automatically (shows directionality)
   // In both cases also compute per-timepoint risks.
   const handleCalculateRisk = useCallback(async () => {
+    if (!modelVersion) {
+      dispatch({ type: "SET_ERROR", payload: "The active model version is unavailable. Reload the dashboard and try again." });
+      return;
+    }
+    const session = patientSession.current;
     const allInputs = buildFeatureMap(state.series, state.scai, state.clinicalInputs, state.support);
-    if (!state.baseline) {
-      dispatch({ type: "LOADING", action: "predict" });
-      try {
+    dispatch({ type: "LOADING", action: compatibleBaseline ? "compare" : "predict" });
+    try {
+      if (!compatibleBaseline) {
         const result = await predict(allInputs, true);
+        if (session !== patientSession.current) return;
+        checkPredictionVersion(result, modelVersion);
         dispatch({ type: "SET_RESULT", payload: result });
         const snap: BaselineSnapshot = {
           featureMap:     result.feature_dict,
@@ -507,58 +548,68 @@ export default function HomePage() {
           rawInputs:      buildBaselineRaw(state.series, state.scai, state.clinicalInputs),
           risk:           result.risk_result,
           savedAt:        new Date().toISOString(),
+          modelVersion:   result.model_version,
         };
         dispatch({ type: "SET_BASELINE", payload: snap });
-
-        // Compute per-timepoint risks in parallel
-        const tpRisks = await buildTimepointRisks(state.series, state.scai, state.clinicalInputs, state.support);
-        dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
-      } catch (e: unknown) {
-        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
-      } finally {
-        dispatch({ type: "DONE_LOADING" });
-      }
-    } else {
-      dispatch({ type: "LOADING", action: "compare" });
-      try {
-        const cmp = await compare(state.baseline.featureMap, allInputs, true);
+      } else {
+        const cmp = await compare({ ...compatibleBaseline.featureMap, ...episodeInputs }, allInputs, true);
+        if (session !== patientSession.current) return;
+        checkPredictionVersion(cmp.current, modelVersion);
+        const featureMap = { ...compatibleBaseline.featureMap };
+        for (const field of Object.keys(episodeInputs)) featureMap[field] = cmp.current.feature_dict[field];
         dispatch({ type: "SET_RESULT",  payload: cmp.current });
-        dispatch({ type: "SET_COMPARE", payload: cmp });
-
-        // Recompute per-timepoint risks with current inputs
-        const tpRisks = await buildTimepointRisks(state.series, state.scai, state.clinicalInputs, state.support);
-        dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
-      } catch (e: unknown) {
-        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
-      } finally {
-        dispatch({ type: "DONE_LOADING" });
+        dispatch({
+          type: "SET_COMPARE", payload: cmp,
+          baseline: { ...compatibleBaseline, featureMap, risk: cmp.baseline_risk },
+        });
       }
+
+      const tpRisks = await buildTimepointRisks(state.series, state.scai, state.clinicalInputs, state.support, modelVersion);
+      if (session === patientSession.current && Object.keys(tpRisks).length > 0) {
+        dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
+      }
+    } catch (e: unknown) {
+      if (session === patientSession.current) {
+        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
+      }
+    } finally {
+      if (session === patientSession.current) dispatch({ type: "DONE_LOADING" });
     }
-  }, [state.series, state.scai, state.clinicalInputs, state.support, state.baseline]);
+  }, [state.series, state.scai, state.clinicalInputs, state.support, compatibleBaseline, episodeInputs, modelVersion]);
 
   // ── Recapture baseline ────────────────────────────────────────────────────
   // Called from the drift banner. Re-predicts current inputs as the new baseline.
   const handleRecaptureBaseline = useCallback(async () => {
+    if (!modelVersion) {
+      dispatch({ type: "SET_ERROR", payload: "The active model version is unavailable. Reload the dashboard and try again." });
+      return;
+    }
+    const session = patientSession.current;
     dispatch({ type: "LOADING", action: "predict" });
     try {
       const allInputs = buildFeatureMap(state.series, state.scai, state.clinicalInputs, state.support);
       const result    = await predict(allInputs, true);
+      if (session !== patientSession.current) return;
+      checkPredictionVersion(result, modelVersion);
       dispatch({ type: "SET_RESULT",  payload: result });
-      dispatch({ type: "SET_COMPARE", payload: null as unknown as CompareResponse }); // clear old compare
+      dispatch({ type: "SET_COMPARE", payload: null });
       const snap: BaselineSnapshot = {
         featureMap:     result.feature_dict,
         clinicalInputs: { ...state.clinicalInputs },
         rawInputs:      buildBaselineRaw(state.series, state.scai, state.clinicalInputs),
         risk:           result.risk_result,
         savedAt:        new Date().toISOString(),
+        modelVersion:   result.model_version,
       };
       dispatch({ type: "SET_BASELINE", payload: snap });
     } catch (e: unknown) {
-      dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
+      if (session === patientSession.current) {
+        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
+      }
     } finally {
-      dispatch({ type: "DONE_LOADING" });
+      if (session === patientSession.current) dispatch({ type: "DONE_LOADING" });
     }
-  }, [state.series, state.scai, state.clinicalInputs, state.support]);
+  }, [state.series, state.scai, state.clinicalInputs, state.support, modelVersion]);
 
   const handleIgnoreDrift = useCallback(() => {
     dispatch({ type: "DISMISS_DRIFT" });
@@ -570,6 +621,7 @@ export default function HomePage() {
   }, []);
 
   const handleReset = useCallback(() => {
+    patientSession.current += 1;
     dispatch({ type: "RESET" });
     setSelectedTp(null);
   }, []);
@@ -585,7 +637,7 @@ export default function HomePage() {
         hospital_id:     hospitalId,
         created_at:      patientCreatedAt.current,
         updated_at:      now,
-        notes:           null,
+        notes,
         series:          state.series,
         scai:            state.scai,
         support:         state.support,
@@ -602,32 +654,18 @@ export default function HomePage() {
       setSaveStatus("idle");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedTp, patientId, patientName, hospitalId]);
+  }, [state, selectedTp, patientId, patientName, hospitalId, notes]);
 
   // ── Open / restore a saved patient ───────────────────────────────────────
   const handleOpenPatient = useCallback((record: PatientRecord) => {
-    dispatch({ type: "SET_SERIES",   payload: record.series });
-    dispatch({ type: "SET_SCAI",     payload: record.scai });
-    dispatch({ type: "SET_SUPPORT",  payload: record.support });
-    dispatch({ type: "SET_CLINICAL", payload: record.clinical_inputs });
-
-    if (record.baseline) {
-      dispatch({ type: "SET_BASELINE", payload: record.baseline });
-    } else {
-      dispatch({ type: "CLEAR_BASELINE" });
-    }
-
-    if (record.current_result) {
-      dispatch({ type: "SET_RESULT", payload: record.current_result });
-    }
-
-    // Restore timepointRisks LAST — CLEAR_BASELINE would have zeroed it.
-    dispatch({ type: "SET_TIMEPOINT_RISKS", payload: record.timepoint_risks });
-
-    setSelectedTp(record.selected_tp as Timepoint | null);
+    patientSession.current += 1;
+    restoredInputs.current = record;
+    dispatch({ type: "RESTORE_PATIENT", payload: record });
+    setSelectedTp(TIMEPOINTS.find((tp) => tp === record.selected_tp) ?? null);
     setPatientId(record.patient_id);
     setPatientName(record.patient_name);
     setHospitalId(record.hospital_id);
+    setNotes(record.notes ?? null);
     patientCreatedAt.current = record.created_at;
     setLastSavedAt(record.updated_at);
     setSaveStatus("saved");
@@ -653,34 +691,46 @@ export default function HomePage() {
 
   // ── New patient (flush-saves current, then resets) ────────────────────────
   const handleNewPatient = useCallback(async () => {
+    const session = ++patientSession.current;
     // Flush any pending autosave timer — we'll save immediately below.
     if (autosaveRef.current) clearTimeout(autosaveRef.current);
 
     const hasData =
+      !!(patientName || hospitalId || notes) ||
       TIMEPOINTS.some((tp) => hasDataAtTimepoint(state.series, tp)) ||
+      Object.values(state.scai).some((v) => v !== null) ||
+      Object.values(state.support).some((series) => Object.values(series).some((v) => v !== null)) ||
       Object.values(state.clinicalInputs).some((v) => v !== null)   ||
-      !!state.baseline;
+      !!state.baseline || !!state.currentResult || Object.keys(state.timepointRisks).length > 0;
 
     if (hasData) {
-      await patientDB.save({
-        patient_id:      patientId,
-        patient_name:    patientName,
-        hospital_id:     hospitalId,
-        created_at:      patientCreatedAt.current,
-        updated_at:      new Date().toISOString(),
-        notes:           null,
-        series:          state.series,
-        scai:            state.scai,
-        support:         state.support,
-        clinical_inputs: state.clinicalInputs,
-        baseline:        state.baseline,
-        baseline_raw:    state.baselineRaw,
-        timepoint_risks: state.timepointRisks,
-        current_result:  state.currentResult,
-        selected_tp:     selectedTp,
-      }).catch(() => {});
+      try {
+        await patientDB.save({
+          patient_id:      patientId,
+          patient_name:    patientName,
+          hospital_id:     hospitalId,
+          created_at:      patientCreatedAt.current,
+          updated_at:      new Date().toISOString(),
+          notes,
+          series:          state.series,
+          scai:            state.scai,
+          support:         state.support,
+          clinical_inputs: state.clinicalInputs,
+          baseline:        state.baseline,
+          baseline_raw:    state.baselineRaw,
+          timepoint_risks: state.timepointRisks,
+          current_result:  state.currentResult,
+          selected_tp:     selectedTp,
+        });
+      } catch {
+        if (session === patientSession.current) {
+          dispatch({ type: "SET_ERROR", payload: "Could not save the current session. Try saving it again before opening a new session." });
+        }
+        return;
+      }
     }
 
+    if (session !== patientSession.current) return;
     dispatch({ type: "RESET" });
     setSelectedTp(null);
     setPatientId(generateId());
@@ -690,14 +740,65 @@ export default function HomePage() {
     setSaveStatus("idle");
     setLastSavedAt(null);
     patientCreatedAt.current = new Date().toISOString();
+    return session;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedTp, patientId, patientName, hospitalId]);
+  }, [state, selectedTp, patientId, patientName, hospitalId, notes]);
+
+  // Load a synthetic example into a separate session, using the same model as real inputs.
+  const handleLoadSyntheticCase = useCallback(async (id: SyntheticCaseId) => {
+    if (!modelVersion) {
+      dispatch({ type: "SET_ERROR", payload: "The active model version is unavailable. Reload the dashboard and try again." });
+      return;
+    }
+    const session = await handleNewPatient();
+    if (session === undefined || session !== patientSession.current) return;
+
+    dispatch({ type: "LOADING", action: "testcase" });
+    try {
+      const { series, scai, support, clinicalInputs } = makeSyntheticCase(id);
+      const label = SYNTHETIC_CASES.find((item) => item.id === id)?.label;
+      setPatientName(label ? `Synthetic example · ${label}` : "Synthetic example");
+      dispatch({ type: "SET_CLINICAL", payload: clinicalInputs });
+      dispatch({ type: "SET_SCAI", payload: scai });
+      dispatch({ type: "SET_SERIES", payload: series });
+      dispatch({ type: "SET_SUPPORT", payload: support });
+
+      const result = await predict(buildFeatureMap(series, scai, clinicalInputs, support), true);
+      if (session !== patientSession.current) return;
+      checkPredictionVersion(result, modelVersion);
+      dispatch({ type: "SET_RESULT", payload: result });
+      dispatch({
+        type: "SET_BASELINE",
+        payload: {
+          featureMap: result.feature_dict,
+          clinicalInputs: { ...clinicalInputs },
+          rawInputs: buildBaselineRaw(series, scai, clinicalInputs),
+          risk: result.risk_result,
+          savedAt: new Date().toISOString(),
+          modelVersion: result.model_version,
+        },
+      });
+
+      const tpRisks = await buildTimepointRisks(series, scai, clinicalInputs, support, modelVersion);
+      if (session === patientSession.current && Object.keys(tpRisks).length > 0) {
+        dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
+      }
+    } catch (e: unknown) {
+      if (session === patientSession.current) {
+        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
+      }
+    } finally {
+      if (session === patientSession.current) dispatch({ type: "DONE_LOADING" });
+    }
+  }, [handleNewPatient, modelVersion]);
 
   // ── Delete current patient ────────────────────────────────────────────────
   const handleDeleteCurrentPatient = useCallback(async () => {
     if (!confirm("Delete this patient record? This action cannot be undone.")) return;
+    const session = ++patientSession.current;
     if (autosaveRef.current) clearTimeout(autosaveRef.current);
     await patientDB.delete(patientId).catch(() => {});
+    if (session !== patientSession.current) return;
     dispatch({ type: "RESET" });
     setSelectedTp(null);
     setPatientId(generateId());
@@ -729,7 +830,7 @@ export default function HomePage() {
       hospital_id:     hospitalId,
       created_at:      patientCreatedAt.current,
       updated_at:      new Date().toISOString(),
-      notes:           null,
+      notes,
       series:          state.series,
       scai:            state.scai,
       support:         state.support,
@@ -742,7 +843,7 @@ export default function HomePage() {
     };
     await exportPatientToFile(record).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedTp, patientId, patientName, hospitalId]);
+  }, [state, selectedTp, patientId, patientName, hospitalId, notes]);
 
   // ── File system: export current patient as CSV/Excel ─────────────────────
   const handleExportExcel = useCallback(async () => {
@@ -752,20 +853,20 @@ export default function HomePage() {
       hospital_id:     hospitalId,
       created_at:      patientCreatedAt.current,
       updated_at:      new Date().toISOString(),
-      notes:           null,
+      notes,
       series:          state.series,
       scai:            state.scai,
       support:         state.support,
       clinical_inputs: state.clinicalInputs,
-      baseline:        state.baseline,
-      baseline_raw:    state.baselineRaw,
-      timepoint_risks: state.timepointRisks,
-      current_result:  state.currentResult,
-      selected_tp:     selectedTp,
+      baseline:        visibleBaseline,
+      baseline_raw:    visibleBaseline ? state.baselineRaw : null,
+      timepoint_risks: visibleTimepointRisks,
+      current_result:  currentResult,
+      selected_tp:     visibleSelectedTp,
     };
     await exportPatientExcel(record).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedTp, patientId, patientName, hospitalId]);
+  }, [state, visibleBaseline, visibleTimepointRisks, currentResult, visibleSelectedTp, patientId, patientName, hospitalId, notes]);
 
   // ── File system: Save As (copies current patient to a chosen location) ────
   const handleSaveAs = useCallback(async () => {
@@ -775,7 +876,7 @@ export default function HomePage() {
       hospital_id:     hospitalId,
       created_at:      patientCreatedAt.current,
       updated_at:      new Date().toISOString(),
-      notes:           null,
+      notes,
       series:          state.series,
       scai:            state.scai,
       support:         state.support,
@@ -789,7 +890,7 @@ export default function HomePage() {
     const suggested = `${patientName ?? "patient"}_${new Date().toISOString().slice(0, 10)}.json`;
     await exportPatientToFile(record, suggested).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, selectedTp, patientId, patientName, hospitalId]);
+  }, [state, selectedTp, patientId, patientName, hospitalId, notes]);
 
   // ── Set default patients folder (persistent, used by autosave) ───────────
   const handleSetPatientsFolder = useCallback(async () => {
@@ -818,7 +919,13 @@ export default function HomePage() {
     );
   }
 
-  const showRightPanel = Object.keys(state.timepointRisks).length > 0 || !!state.currentResult || isLoading;
+  const hasLegacyEstimates = modelVersion && (
+    (state.baseline && !compatibleBaseline) ||
+    (state.currentResult && !hasMatchingModelVersion(state.currentResult.model_version, modelVersion)) ||
+    Object.keys(state.timepointRisks).length > Object.keys(versionedTimeline).length
+  );
+  const showRightPanel = Object.keys(visibleTimepointRisks).length > 0 || !!currentResult || !!visibleBaseline || isLoading;
+  const selectedResult = visibleSelectedTp ? visibleTimepointRisks[visibleSelectedTp] : currentResult;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -909,8 +1016,19 @@ export default function HomePage() {
           </div>
         )}
 
+        {activeView === "clinical" && hasLegacyEstimates && (
+          <p className="mb-5 rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
+            Some saved estimates use a different or unrecorded model version. Calculate risk with the saved inputs to update them.
+          </p>
+        )}
+        {activeView === "clinical" && compatibleBaseline && !visibleBaseline && (
+          <p className="mb-5 rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
+            Episode information has changed. Calculate risk to update the comparison using the saved baseline haemodynamics.
+          </p>
+        )}
+
         {/* ── Drift banner ─────────────────────────────────────────────────── */}
-        {state.baseline && baselineDrift && (
+        {compatibleBaseline && baselineDrift && (
           <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
             <span className="text-sm font-semibold text-amber-300">⚠ Baseline inputs modified</span>
             <span className="flex-1 text-xs text-amber-600/80 min-w-0">
@@ -960,7 +1078,7 @@ export default function HomePage() {
               loadingAction={state.loadingAction}
               onClinicalChange={handleClinicalChange}
               onCalculateRisk={handleCalculateRisk}
-              onLoadTestCase={handleLoadTestCase}
+              onLoadSyntheticCase={handleLoadSyntheticCase}
               onReset={handleReset}
             />
           </div>
@@ -982,36 +1100,36 @@ export default function HomePage() {
           <div className="xl:col-span-3 xl:col-start-[10] xl:[grid-row:1] space-y-5">
 
             {/* 1. Risk Timeline selector */}
-            {Object.keys(state.timepointRisks).length > 0 && (
+            {Object.keys(visibleTimepointRisks).length > 0 && (
               <TimepointRisksPanel
-                timepointRisks={state.timepointRisks}
-                selectedTp={selectedTp}
+                timepointRisks={visibleTimepointRisks}
+                selectedTp={visibleSelectedTp}
                 onSelectTp={setSelectedTp}
               />
             )}
 
             {/* 2. Baseline comparison: baseline vs selectedTp, computed locally */}
-            {state.baseline && (
+            {visibleBaseline && (
               <BaselineCard
-                baseline={state.baseline}
-                timepointRisks={state.timepointRisks}
-                selectedTp={selectedTp}
+                baseline={visibleBaseline}
+                timepointRisks={visibleTimepointRisks}
+                selectedTp={visibleSelectedTp}
                 onClear={handleClearBaseline}
               />
             )}
 
             {/* 3. Risk Assessment for the selected timepoint */}
-            {selectedTp && state.timepointRisks[selectedTp] && !isLoading && (
+            {selectedResult && !isLoading && (
               <ResultPanel
-                result={state.timepointRisks[selectedTp]!}
-                timepointLabel={TP_LABELS[selectedTp]}
+                result={selectedResult}
+                timepointLabel={visibleSelectedTp ? TP_LABELS[visibleSelectedTp] : undefined}
               />
             )}
 
             {/* 4. Baseline inputs review */}
-            {state.baseline && (
+            {visibleBaseline && (
               <BaselineReview
-                baseline={state.baseline}
+                baseline={visibleBaseline}
                 onClear={handleClearBaseline}
               />
             )}
@@ -1022,7 +1140,7 @@ export default function HomePage() {
                 <p className="text-sm font-medium text-slate-300">
                   {state.loadingAction === "predict"  && "Running inference…"}
                   {state.loadingAction === "compare"  && "Comparing vs baseline…"}
-                  {state.loadingAction === "testcase" && "Loading test case…"}
+                  {state.loadingAction === "testcase" && "Loading synthetic example…"}
                 </p>
                 <p className="mt-1 text-xs text-slate-600">PULSAR XGBoost · 32 features</p>
               </div>
@@ -1082,7 +1200,8 @@ export default function HomePage() {
                 from retrospective multicenter clinical data in patients with cardiogenic shock. The model uses
                 serial hemodynamic, laboratory, and mechanical circulatory support variables obtained at
                 predefined timepoints (baseline, 6 h, 12 h, 24 h, and 48 h) to estimate the probability of
-                in-hospital mortality.
+                in-hospital mortality. The timeline is retrospective: all estimates for an episode share
+                the recorded maximum SCAI stage through 48 h and episode-level support information.
               </p>
               <p className="text-sm text-slate-400 leading-relaxed">
                 This application was developed as an investigator-initiated academic project by the{" "}
@@ -1097,9 +1216,9 @@ export default function HomePage() {
             <div className="rounded-2xl border border-[#1a3a57] bg-[#0a1929] p-6 space-y-3">
               <h3 className="text-sm font-bold uppercase tracking-wide text-slate-300">Model Performance and Validation</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Model performance was evaluated using retrospective data and internal validation procedures
-                within the available multicenter dataset. Although the model was developed using data from
-                multiple institutions, fully independent prospective external validation has not yet been
+                The study evaluated model performance by holding out each center in turn. This app uses a
+                separate fit on the full corrected cohort for research demonstrations. Fully independent
+                prospective external validation has not yet been
                 completed. Accordingly, predictive performance may differ across hospitals, clinical
                 workflows, patient populations, monitoring systems, and treatment practices not represented
                 in the development dataset.
@@ -1257,8 +1376,8 @@ export default function HomePage() {
         {/* ── Model Insights ───────────────────────────────────────────── */}
         {activeView === "insights" && (
           <div className="space-y-6">
-            {state.currentResult ? (
-              <InfluencePanel explanation={state.currentResult.explanation ?? null} />
+            {currentResult ? (
+              <InfluencePanel explanation={currentResult.explanation ?? null} />
             ) : (
               <div className="card flex flex-col items-center justify-center py-16 text-center">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#152e47]">
@@ -1283,6 +1402,7 @@ export default function HomePage() {
       {showPatientList && (
         <PatientListModal
           currentPatientId={patientId}
+          modelVersion={modelVersion}
           onOpen={handleOpenPatient}
           onClose={() => setShowPatientList(false)}
         />

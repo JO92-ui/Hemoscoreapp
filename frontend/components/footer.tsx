@@ -14,8 +14,8 @@ export default function Footer() {
               <p className="font-semibold text-amber-300">Clinical Disclaimer</p>
               <p>
                 HEMOSCOREAPP is a research tool based on the PULSAR XGBoost model.
-                Predictions are probabilistic estimates only and do not constitute
-                clinical advice, diagnosis, or treatment recommendations.
+                Estimates are retrospective and include episode-level support and maximum
+                SCAI stage during the first 48 hours. Use is limited to research and education.
               </p>
               <p>
                 Variable influence scores are non-causal heuristic proxies (ICE-delta
@@ -31,11 +31,11 @@ export default function Footer() {
           <div className="space-y-1">
             <p className="font-semibold text-slate-400">HEMOSCOREAPP</p>
             <p>PULSAR XGBoost · In-hospital mortality · Cardiogenic Shock</p>
-            <p>For research and clinical decision support only.</p>
+            <p>For research and education only.</p>
           </div>
 
           <div className="flex flex-col sm:items-end gap-1">
-            <p>Model: PULSAR XGBoost final clinical super</p>
+            <p>Model: PULSAR XGBoost, corrected research bundle</p>
             <p>32 features · 4-tier risk stratification</p>
             <p className="text-slate-600">
               © {new Date().getFullYear()} HEMOSCOREAPP. All rights reserved.

@@ -11,6 +11,7 @@ import {
   TP_LABELS,
   VAR_META,
   THRESHOLDS,
+  isOffTarget,
   type SeriesState,
   type HemoVar,
 } from "@/lib/series";
@@ -37,11 +38,6 @@ const X_POS = TIMEPOINTS.map(
 function valToY(val: number, minY: number, maxY: number): number {
   if (maxY === minY) return PAD_T + PLOT_H / 2;
   return PAD_T + (1 - (val - minY) / (maxY - minY)) * PLOT_H;
-}
-
-function isOffTarget(val: number, variable: HemoVar): boolean {
-  const t = THRESHOLDS[variable];
-  return t.direction === "max" ? val >= t.value : val < t.value;
 }
 
 // ── Single-variable SVG chart ─────────────────────────────────────────────────
@@ -91,7 +87,7 @@ function VarChart({ variable, series }: VarChartProps) {
   // Unique gradient ID per variable to avoid cross-SVG ID collisions in the DOM
   const gradId    = `hdt-grad-${variable}`;
   const lastPt    = pts.length > 0 ? pts[pts.length - 1] : null;
-  const currOff   = lastPt ? isOffTarget(lastPt.val, variable) : null;
+  const currOff   = lastPt ? isOffTarget(lastPt.val, thresh) : null;
 
   // Y-axis labels: min, threshold, max  (to give clinical context)
   const yLabels = [
@@ -234,7 +230,7 @@ function VarChart({ variable, series }: VarChartProps) {
           {pts.map((p) => {
             const cx         = X_POS[p.i];
             const cy         = valToY(p.val, minY, maxY);
-            const off        = isOffTarget(p.val, variable);
+            const off        = isOffTarget(p.val, thresh);
             const dotColor   = off ? "#fb7185" : "#2dd4bf";
             const ringColor  = off ? "rgb(251,113,133,0.2)" : "rgb(45,212,191,0.2)";
             const strokeClr  = off ? "#e11d48" : "#0d9488";

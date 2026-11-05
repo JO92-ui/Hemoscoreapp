@@ -153,8 +153,8 @@ class ExplanationResult:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _predict_single(model, row: np.ndarray) -> float:
-    """Run predict_proba on a single (1, n_features) row and return p(death)."""
-    return float(model.predict_proba(row)[0, 1])
+    """Return p(death) from the binary booster for one feature row."""
+    return float(model.inplace_predict(row)[0])
 
 
 def _build_reference_row(bundle: ModelBundle) -> np.ndarray:

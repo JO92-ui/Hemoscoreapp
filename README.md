@@ -2,7 +2,7 @@
 
 > **PULSAR XGBoost** — Cardiogenic Shock In-Hospital Mortality Risk Calculator
 
-A local, offline-capable clinical decision-support tool for estimating in-hospital mortality risk in cardiogenic shock patients, powered by the PULSAR XGBoost model developed by the **ITA-MEX Collaborative Group**.
+A local, offline research prototype for exploring retrospective in-hospital mortality estimates in cardiogenic shock, based on the PULSAR XGBoost model developed by the **ITA-MEX Collaborative Group**.
 
 ---
 
@@ -39,10 +39,7 @@ Assets
 
 ### Step 3 — Extract the ZIP
 
-| OS | How to extract |
-|---|---|
-| **Windows** | Right-click the `.zip` file → **Extract All…** → choose a destination → click **Extract** |
-| **macOS** | Double-click the `.zip` file — macOS extracts it automatically |
+On Windows, right-click the `.zip` file, choose **Extract All…**, and select a destination.
 
 > 💡 **Tip:** Extract to a permanent folder (e.g. `Documents\HEMOSCOREAPP`), not directly from inside the ZIP.
 
@@ -61,9 +58,7 @@ Inside the extracted folder, double-click **`HEMOSCOREAPP.exe`**:
 
 The app will open automatically in your default web browser at `http://localhost:8000`.
 
-> ⚠️ **Windows SmartScreen warning?** If Windows shows *"Windows protected your PC"*, click **More info** → **Run anyway**. This is expected for unsigned executables and is safe.
-
-> ⚠️ **Antivirus alert?** Some antivirus programs flag PyInstaller-packaged `.exe` files as suspicious. This is a false positive. You can verify the file via the [VirusTotal link in the release notes](https://github.com/JO92-ui/Hemoscoreapp/releases/latest) if needed.
+The Windows executable is unsigned. The GitHub release notes include the ZIP's SHA-256 checksum so you can verify the download.
 
 ---
 
@@ -84,6 +79,22 @@ The app will open automatically in your default web browser at `http://localhost
 HEMOSCOREAPP is provided **for research and educational purposes only**. It is **not** a certified medical device and has **not** received regulatory clearance (FDA, CE, COFEPRIS, or equivalent). It must not be used as the sole or primary basis for clinical decisions. All predictions must be interpreted by qualified medical personnel in conjunction with full clinical assessment.
 
 See the **Disclosures** tab within the application for the complete ITA-MEX disclaimer.
+
+Use **Synthetic examples** in the app to explore three fictional 48-hour trajectories: recovery after initial worsening, stable haemodynamics, and progressive deterioration.
+
+The corrected PULSAR bundle follows the original application export procedure: a
+single full-cohort fit on corrected imputation 9, with the same feature order and
+XGBoost settings. The manuscript's held-out estimates come from separate
+validation fits across centers and imputations. Earlier scores in the app use
+episode-level support and the maximum SCAI stage in the first 48 hours, as in the
+retrospective model. Missing app inputs use bundle medians or modes. The
+application does not reproduce the study's longitudinal multiple imputation.
+
+Use the export cell in the [Modelo 03 Colab](https://colab.research.google.com/drive/1JeB0AjFCsCjON8ahw1p0wgfhiGLxsI87)
+after preparing the corrected branch. The cell runs [the export script](scripts/export_pulsar.py)
+with the corrected feature stack and resolved variable map. It writes model
+weights and metadata to the export folder. The API reports the bundle version
+and native model hash at `GET /metadata`.
 
 ---
 
@@ -315,7 +326,7 @@ The output is `dist\HEMOSCOREAPP_WEB\` (a folder, **not** a single file).
 1. Unzip the archive anywhere (e.g. `C:\HEMOSCOREAPP_WEB\`).
 2. Double-click **`HEMOSCOREAPP.exe`** inside that folder.
 3. The app opens automatically in the default browser at `http://localhost:8000`.
-4. Close the terminal window (or the exe in the system tray) to shut down the server.
+4. To stop the server, end `HEMOSCOREAPP.exe` in Windows Task Manager.
 
 > No Python, Node.js, or any other software needs to be installed on the client machine.
 

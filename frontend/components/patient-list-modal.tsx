@@ -14,12 +14,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Clock, Copy, Search, Trash2, UserCircle2, X } from "lucide-react";
 import clsx from "clsx";
 import { patientDB } from "@/lib/db";
+import { timepointRisksForModel } from "@/lib/types";
 import type { PatientRecord } from "@/lib/types";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface PatientListModalProps {
   currentPatientId: string;
+  modelVersion:     string | null | undefined;
   onOpen:           (record: PatientRecord) => void;
   onClose:          () => void;
 }
@@ -51,6 +53,7 @@ function riskColor(category: string): string {
 
 export default function PatientListModal({
   currentPatientId,
+  modelVersion,
   onOpen,
   onClose,
 }: PatientListModalProps) {
@@ -162,13 +165,13 @@ export default function PatientListModal({
               const isCurrent = p.patient_id === currentPatientId;
 
               // Latest available risk result across all timepoints
-              const tpValues  = Object.values(p.timepoint_risks);
+              const tpValues  = Object.values(timepointRisksForModel(p.timepoint_risks, modelVersion));
               const lastRisk  = tpValues.length > 0
                 ? tpValues[tpValues.length - 1]?.risk_result ?? null
                 : null;
 
               // Count how many timepoints have data
-              const tpCount = Object.keys(p.timepoint_risks).length;
+              const tpCount = tpValues.length;
 
               return (
                 <div

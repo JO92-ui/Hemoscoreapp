@@ -32,7 +32,9 @@ import {
 import clsx from "clsx";
 import { useAuth } from "@/lib/auth-context";
 import { patientDB, handleDB } from "@/lib/db";
+import { fetchMetadata } from "@/lib/api";
 import { HANDLE_PATIENTS_KEY, HANDLE_EXPORTS_KEY, pickFolder, verifyPermission } from "@/lib/file-system";
+import { hasMatchingModelVersion, timepointRisksForModel } from "@/lib/types";
 import type { PatientRecord } from "@/lib/types";
 import {
   getInitials,
@@ -131,6 +133,7 @@ export default function HomePage() {
   // ── Data state ────────────────────────────────────────────────────────────
   const [patients,     setPatients]    = useState<PatientRecord[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [modelVersion, setModelVersion] = useState<string | null>(null);
   const [patientsDir,  setPatientsDir] = useState<FileSystemDirectoryHandle | null>(null);
   const [exportsDir,   setExportsDir]  = useState<FileSystemDirectoryHandle | null>(null);
   const mounted = useRef(false);
@@ -151,6 +154,14 @@ export default function HomePage() {
       if (mounted.current) setStatsLoading(false);
     });
     return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchMetadata().then((metadata) => {
+      if (active) setModelVersion(metadata.model_version ?? null);
+    }).catch(() => {});
+    return () => { active = false; };
   }, []);
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -188,12 +199,12 @@ export default function HomePage() {
   const recentPatients = patients.slice(0, 5);
   const patientCount   = patients.length;
 
-  const lastRisk = lastPatient?.current_result?.risk_result
-    ?? (lastPatient?.selected_tp
-      ? lastPatient.timepoint_risks[lastPatient.selected_tp]?.risk_result
-      : undefined)
+  const lastTimepointRisks = timepointRisksForModel(lastPatient?.timepoint_risks, modelVersion);
+  const lastCurrent = lastPatient?.current_result;
+  const lastRisk = (hasMatchingModelVersion(lastCurrent?.model_version, modelVersion) ? lastCurrent?.risk_result : null)
+    ?? (lastPatient?.selected_tp ? lastTimepointRisks[lastPatient.selected_tp]?.risk_result : null)
     ?? null;
-  const lastTimepointCount = Object.keys(lastPatient?.timepoint_risks ?? {}).length;
+  const lastTimepointCount = Object.keys(lastTimepointRisks).length;
 
   // ── Loading spinner ───────────────────────────────────────────────────────
   if (isLoading) {
@@ -388,7 +399,7 @@ export default function HomePage() {
                         </p>
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-600">No risk computed yet</p>
+                      <p className="text-xs text-slate-600">No saved estimate for the active model</p>
                     )}
                     <button
                       onClick={() => router.push(`/?patient=${lastPatient.patient_id}`)}
@@ -480,9 +491,11 @@ export default function HomePage() {
             <SectionHeader label="Recent patients" />
             <div className="overflow-hidden rounded-2xl border border-[#1a3a57]">
               {recentPatients.map((p, i) => {
-                const risk = p.current_result?.risk_result
-                  ?? (p.selected_tp ? p.timepoint_risks[p.selected_tp]?.risk_result : undefined);
-                const tpCount = Object.keys(p.timepoint_risks).length;
+                const timepointRisks = timepointRisksForModel(p.timepoint_risks, modelVersion);
+                const risk = (hasMatchingModelVersion(p.current_result?.model_version, modelVersion)
+                  ? p.current_result?.risk_result : null)
+                  ?? (p.selected_tp ? timepointRisks[p.selected_tp]?.risk_result : null);
+                const tpCount = Object.keys(timepointRisks).length;
                 return (
                   <div
                     key={p.patient_id}

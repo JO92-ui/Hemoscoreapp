@@ -74,3 +74,4 @@ class PredictResponse(BaseModel):
     )
     timestamp: str = Field(description="ISO-style datetime of the prediction.")
     model_name: str = Field(description="Model identifier from the preprocessing spec.")
+    model_version: str | None = Field(default=None, description="Version of the bundle used for this estimate.")

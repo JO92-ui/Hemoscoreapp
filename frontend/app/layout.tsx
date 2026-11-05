@@ -1,23 +1,20 @@
 // FILE: frontend/app/layout.tsx
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 
-/**
- * Inter is fetched at build time and self-hosted — no CDN request at runtime.
- * This makes the app fully functional offline once built.
- */
-const inter = Inter({
-  subsets:  ["latin"],
-  weight:   ["300", "400", "500", "600", "700", "800"],
-  display:  "swap",
+// Bundle the existing Inter Latin font so offline builds need no font CDN.
+const inter = localFont({
+  src: "./fonts/inter-latin.woff2",
+  weight: "100 900",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "HEMOSCOREAPP — Cardiogenic Shock Risk",
   description:
-    "PULSAR XGBoost model for in-hospital mortality risk stratification in cardiogenic shock. For research and clinical decision support — not a substitute for clinical judgement.",
+    "Research prototype for retrospective PULSAR in-hospital mortality estimates in cardiogenic shock.",
   keywords: ["cardiogenic shock", "PULSAR", "risk score", "SCAI", "ICU"],
   authors: [{ name: "HEMOSCOREAPP" }],
 };

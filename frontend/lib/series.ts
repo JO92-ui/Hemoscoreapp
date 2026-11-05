@@ -48,7 +48,7 @@ export interface VarMeta {
 
 export const VAR_META: Record<HemoVar, VarMeta> = {
   hr:      { label: "HR",      unit: "bpm",    min: 20, max: 250, step: 1    },
-  cpi_rap: { label: "CPI/RAP", unit: "",       min: 0,  max: 10,  step: 0.01 },
+  cpi_rap: { label: "CPI-RAP", unit: "W/m²",   min: 0,  max: 10,  step: 0.01 },
   lactate: { label: "Lactate", unit: "mmol/L", min: 0,  max: 30,  step: 0.1  },
   pawp:    { label: "PAWP",    unit: "mmHg",   min: 0,  max: 60,  step: 0.5  },
   rap:     { label: "RAP",     unit: "mmHg",   min: 0,  max: 40,  step: 0.5  },
@@ -89,25 +89,19 @@ export type ClinicalFeatureName = (typeof CLINICAL_FEATURE_NAMES)[number];
 // ── Clinical thresholds for TOT-hours ────────────────────────────────────────
 
 export interface ThresholdSpec {
-  /**
-   * "min" → goal is to stay ABOVE threshold; off-target when value < threshold.
-   * "max" → goal is to stay BELOW threshold; off-target when value > threshold.
-   */
-  direction: "min" | "max";
+  offTargetWhen: "atOrAbove" | "atOrBelow" | "below";
   value:     number;
   goalLabel: string;
 }
 
-// Official PULSAR thresholds.  Direction semantics:
-//   "max" → op "ge"  — off-target when value >= threshold
-//   "min" → op "lt"  — off-target when value <  threshold
+// Off-target rules used by the retrospective PULSAR model.
 export const THRESHOLDS: Record<HemoVar, ThresholdSpec> = {
-  hr:      { direction: "max", value: 100.0, goalLabel: "Goal < 100 bpm"  },
-  cpi_rap: { direction: "min", value: 0.28,  goalLabel: "Goal ≥ 0.28"     },
-  lactate: { direction: "max", value: 2.0,   goalLabel: "Goal < 2 mmol/L" },
-  pawp:    { direction: "max", value: 18.0,  goalLabel: "Goal < 18 mmHg"  },
-  rap:     { direction: "max", value: 12.0,  goalLabel: "Goal < 12 mmHg"  },
-  opp:     { direction: "min", value: 57.0,  goalLabel: "Goal ≥ 57 mmHg"  },
+  hr:      { offTargetWhen: "atOrAbove", value: 100.0, goalLabel: "Goal < 100 bpm"  },
+  cpi_rap: { offTargetWhen: "atOrBelow", value: 0.28,  goalLabel: "Goal > 0.28"     },
+  lactate: { offTargetWhen: "atOrAbove", value: 2.0,   goalLabel: "Goal < 2 mmol/L" },
+  pawp:    { offTargetWhen: "atOrAbove", value: 18.0,  goalLabel: "Goal < 18 mmHg"  },
+  rap:     { offTargetWhen: "atOrAbove", value: 12.0,  goalLabel: "Goal < 12 mmHg"  },
+  opp:     { offTargetWhen: "below",     value: 57.0,  goalLabel: "Goal ≥ 57 mmHg"  },
 };
 
 // ── Series state shapes ───────────────────────────────────────────────────────
@@ -127,10 +121,12 @@ export function emptySeriesState(): SeriesState {
 
 // ── TOT-hours algorithm ───────────────────────────────────────────────────────
 
-function isOffTarget(value: number, thresh: ThresholdSpec): boolean {
-  // "max" → op "ge": off-target when value >= threshold
-  // "min" → op "lt": off-target when value <  threshold
-  return thresh.direction === "max" ? value >= thresh.value : value < thresh.value;
+export function isOffTarget(value: number, threshold: ThresholdSpec): boolean {
+  switch (threshold.offTargetWhen) {
+    case "atOrAbove": return value >= threshold.value;
+    case "atOrBelow": return value <= threshold.value;
+    case "below": return value < threshold.value;
+  }
 }
 
 /**
@@ -246,7 +242,7 @@ export function emptyScaiValues(): ScaiValues {
 }
 
 export interface ScaiDerived {
-  /** SCAI at the first filled timepoint → base_scai_admission_num */
+  /** SCAI at admission → base_scai_admission_num */
   admission: number | null;
   /** Maximum SCAI across all filled timepoints → base_scai_max_48h_num */
   max48h: number | null;
@@ -256,23 +252,11 @@ export interface ScaiDerived {
 
 /** Derive the 3 SCAI model features from the SCAI time series. */
 export function computeScaiDerived(scai: ScaiValues): ScaiDerived {
-  let first: number | null = null;
-  let maxVal = -Infinity;
-  let hasAny = false;
-
-  for (const tp of TIMEPOINTS) {
-    const v = scai[tp];
-    if (v !== null && v !== undefined) {
-      if (first === null) first = v;
-      if (v > maxVal) maxVal = v;
-      hasAny = true;
-    }
-  }
-
-  if (!hasAny) return { admission: null, max48h: null, worsening: null };
-
-  const worsening = first !== null ? Math.max(0, maxVal - first) : null;
-  return { admission: first, max48h: maxVal, worsening };
+  const admission = scai.baseline ?? null;
+  const stages = TIMEPOINTS.map((tp) => scai[tp]).filter((stage): stage is number => stage != null);
+  const max48h = stages.length ? Math.max(...stages) : null;
+  const worsening = admission !== null && max48h !== null ? max48h - admission : null;
+  return { admission, max48h, worsening };
 }
 
 /** Convert SCAI-derived values to the 3 flat model feature entries. */
@@ -320,29 +304,6 @@ export function computeAllUpTo(
   const out = {} as Record<HemoVar, DerivedValues>;
   for (const v of HEMO_VARS) out[v] = computeDerivedUpTo(series[v], THRESHOLDS[v], upTo);
   return out;
-}
-
-/** SCAI derived values using only timepoints up to and including `upTo`. */
-export function computeScaiDerivedUpTo(scai: ScaiValues, upTo: Timepoint): ScaiDerived {
-  const cutoff = TIMEPOINT_HOURS[upTo];
-  let first: number | null = null;
-  let maxVal = -Infinity;
-  let hasAny = false;
-  for (const tp of TIMEPOINTS) {
-    if (TIMEPOINT_HOURS[tp] > cutoff) break;
-    const v = scai[tp];
-    if (v !== null && v !== undefined) {
-      if (first === null) first = v;
-      if (v > maxVal) maxVal = v;
-      hasAny = true;
-    }
-  }
-  if (!hasAny) return { admission: null, max48h: null, worsening: null };
-  return {
-    admission:  first,
-    max48h:     maxVal,
-    worsening:  first !== null ? Math.max(0, maxVal - first) : null,
-  };
 }
 
 /** Returns true if at least one haemodynamic variable has a non-null value at exactly `tp`. */
@@ -393,14 +354,16 @@ export function getSupportAtTimepoint(
   return last;
 }
 
-/** Flat feature map for all support devices at a given timepoint (with forward-propagation). */
-export function supportToFeaturesAtTimepoint(
+/** Fixed retrospective features shared by all assessments in an episode. */
+export function episodeToFeatures(
+  scai: ScaiValues,
   support: SupportSeries,
-  tp: Timepoint,
 ): Record<string, number | null> {
-  const out: Record<string, number | null> = {};
+  const features = scaiToFeatures(computeScaiDerived(scai));
   for (const sv of SUPPORT_VARS) {
-    out[sv] = getSupportAtTimepoint(support, sv, tp);
+    // Binary devices indicate any recorded use. Ventilation retains the highest recorded level.
+    const values = TIMEPOINTS.map((tp) => support[sv][tp]).filter((value): value is number => value != null);
+    features[sv] = values.length ? Math.max(...values) : null;
   }
-  return out;
+  return features;
 }

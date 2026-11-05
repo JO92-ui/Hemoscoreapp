@@ -14,6 +14,7 @@ import {
 import clsx from "clsx";
 import type { MetadataResponse } from "@/lib/types";
 import { CLINICAL_FEATURE_NAMES } from "@/lib/series";
+import { SYNTHETIC_CASES, type SyntheticCaseId } from "@/lib/test-case";
 
 // =============================================================================
 // Static enrichment catalog — CLINICAL features only (14 fixed inputs).
@@ -292,7 +293,7 @@ interface InputPanelProps {
   loadingAction: "predict" | "compare" | "testcase" | null;
   onClinicalChange:  (field: string, value: number | null) => void;
   onCalculateRisk:   () => void;
-  onLoadTestCase:    () => void;
+  onLoadSyntheticCase: (id: SyntheticCaseId) => void;
   onReset:           () => void;
 }
 
@@ -306,10 +307,11 @@ export default function InputPanel({
   loadingAction,
   onClinicalChange,
   onCalculateRisk,
-  onLoadTestCase,
+  onLoadSyntheticCase,
   onReset,
 }: InputPanelProps) {
   const isLoading = loadingAction !== null;
+  const [example, setExample] = useState<(typeof SYNTHETIC_CASES)[number]>(SYNTHETIC_CASES[0]);
 
   // Only show clinical features (14 fixed inputs)
   const clinicalFeatureList = useMemo<string[]>(
@@ -388,36 +390,54 @@ export default function InputPanel({
             : <><Zap className="h-4 w-4" /> Calculate Risk</>}
         </button>
 
-        {/* Utility row */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-2 rounded-lg border border-[#1a3a57] p-3">
+          <label htmlFor="synthetic-example" className="block text-xs font-semibold text-slate-300">
+            Synthetic examples
+          </label>
+          <select
+            id="synthetic-example"
+            aria-describedby="synthetic-example-description"
+            value={example.id}
+            disabled={isLoading}
+            onChange={(event) => {
+              const next = SYNTHETIC_CASES.find(({ id }) => id === event.target.value);
+              if (next) setExample(next);
+            }}
+            className="field-input w-full text-xs"
+          >
+            {SYNTHETIC_CASES.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <p id="synthetic-example-description" className="text-[11px] text-slate-400">
+            {example.description} Loading opens a separate synthetic session.
+          </p>
           <button
             type="button"
-            onClick={onLoadTestCase}
+            onClick={() => onLoadSyntheticCase(example.id)}
             disabled={isLoading}
             className={clsx(
-              "btn-secondary justify-center text-xs py-2",
+              "btn-secondary w-full justify-center text-xs py-2",
               isLoading && "opacity-50 cursor-not-allowed",
             )}
           >
             {loadingAction === "testcase"
               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
               : <FlaskConical className="h-3.5 w-3.5" />}
-            Test Case
-          </button>
-
-          <button
-            type="button"
-            onClick={onReset}
-            disabled={isLoading}
-            className={clsx(
-              "btn-secondary justify-center text-xs py-2",
-              isLoading && "opacity-50 cursor-not-allowed",
-            )}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reset
+            Load synthetic example
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={isLoading}
+          className={clsx(
+            "btn-secondary w-full justify-center text-xs py-2",
+            isLoading && "opacity-50 cursor-not-allowed",
+          )}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reset
+        </button>
 
       </div>
 
