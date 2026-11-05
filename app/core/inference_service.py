@@ -74,6 +74,7 @@ class PredictionResult:
     explanation: ExplanationResult
     timestamp: str
     model_name: str
+    model_version: str | None = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -144,8 +145,7 @@ class InferenceService:
 
         # ── 2. Predict ────────────────────────────────────────────────────────
         try:
-            proba_array = bundle.model.predict_proba(prep.feature_vector)
-            probability = float(proba_array[0, 1])
+            probability = float(bundle.model.inplace_predict(prep.feature_vector)[0])
         except Exception as exc:
             raise RuntimeError(
                 f"Model prediction failed: {exc}"
@@ -190,6 +190,7 @@ class InferenceService:
             explanation=explanation,
             timestamp=now_display(),
             model_name=bundle.spec.get("model_name", "PULSAR XGBoost"),
+            model_version=bundle.spec.get("model_version"),
         )
 
     # ── Comparison API ────────────────────────────────────────────────────────
@@ -224,10 +225,10 @@ class InferenceService:
 
         try:
             baseline_prob = float(
-                bundle.model.predict_proba(baseline_prep.feature_vector)[0, 1]
+                bundle.model.inplace_predict(baseline_prep.feature_vector)[0]
             )
             current_prob = float(
-                bundle.model.predict_proba(current_prep.feature_vector)[0, 1]
+                bundle.model.inplace_predict(current_prep.feature_vector)[0]
             )
         except Exception as exc:
             raise RuntimeError(

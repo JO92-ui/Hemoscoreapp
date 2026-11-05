@@ -1,4 +1,5 @@
 """Smoke test for the HEMOSCOREAPP backend."""
+import math
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -24,6 +25,9 @@ print("FastAPI app created:", app.title)
 # ── 5. Core inference wired through backend config ───────────────────────────
 svc = InferenceService()
 result = svc.run_test_case()
+assert result.model_version == "pulsar-modelo03-retrospective"
+assert not result.imputed_fields, "The synthetic fixture must supply all 32 features."
+assert math.isclose(result.probability, 0.5096854567527771, rel_tol=0, abs_tol=1e-7)
 print(f"Test case: {result.risk_percent:.1f}%  {result.risk_result.label}")
 print(f"  Imputed: {result.imputed_fields or '(none)'}")
 

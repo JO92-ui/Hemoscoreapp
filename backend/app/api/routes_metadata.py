@@ -59,6 +59,8 @@ def get_metadata(request: Request) -> MetadataResponse:
 
     return MetadataResponse(
         model_name=spec.get("model_name", "PULSAR XGBoost"),
+        model_version=spec.get("model_version"),
+        model_sha256=spec.get("model_sha256"),
         api_version="1.0.0",
         n_features=spec.get("n_features", len(bundle.features)),
         features=bundle.features,

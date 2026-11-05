@@ -7,7 +7,7 @@ MODEL_FILE = "pulsar_xgb_final_clinical_super.json"
 SPEC_FILE = "pulsar_preprocessing_spec.json"
 
 def load_model():
-    model = xgb.XGBClassifier()
+    model = xgb.Booster()
     model.load_model(MODEL_FILE)
     return model
 
@@ -36,7 +36,7 @@ def predict_risk(input_dict):
         x.append(float(val))
 
     X = np.array(x, dtype=float).reshape(1, -1)
-    risk = float(model.predict_proba(X)[0, 1])
+    risk = float(model.inplace_predict(X)[0])
 
     return {
         "risk_probability": risk,

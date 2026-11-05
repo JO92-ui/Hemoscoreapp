@@ -32,6 +32,8 @@ export interface FeatureImportanceMeta {
 
 export interface MetadataResponse {
   model_name: string;
+  model_version?: string | null;
+  model_sha256?: string | null;
   api_version: string;
   n_features: number;
   features: string[];
@@ -43,6 +45,13 @@ export interface MetadataResponse {
   /** Population-median imputation defaults keyed by feature name. */
   imputation_defaults: Record<string, number>;
   xgb_params: Record<string, unknown>;
+}
+
+export function hasMatchingModelVersion(
+  saved: string | null | undefined,
+  active: string | null | undefined,
+): boolean {
+  return Boolean(active && saved === active);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -92,6 +101,7 @@ export interface PredictResponse {
   explanation: ExplanationResult;
   timestamp: string;
   model_name: string;
+  model_version?: string | null;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -145,7 +155,7 @@ export interface BaselineRaw {
 
 /**
  * Snapshot saved by the user as "baseline".
- * Persisted in component state only (no backend storage).
+ * Kept in component state and the locally saved patient record.
  *
  * featureMap: flat 32-feature dict from the last PredictResponse.feature_dict —
  *   used directly as baseline_inputs for POST /compare.
@@ -158,6 +168,7 @@ export interface BaselineSnapshot {
   rawInputs:      BaselineRaw;
   risk:    RiskResult;
   savedAt: string; // ISO string
+  modelVersion?: string | null;
 }
 
 /**
@@ -192,6 +203,15 @@ export interface AppState {
  * Only includes timepoints for which data was available and prediction succeeded.
  */
 export type TimepointRisks = Partial<Record<string, PredictResponse>>;
+
+export function timepointRisksForModel(
+  risks: TimepointRisks | null | undefined,
+  modelVersion: string | null | undefined,
+): TimepointRisks {
+  return Object.fromEntries(Object.entries(risks ?? {}).filter(([, risk]) =>
+    hasMatchingModelVersion(risk?.model_version, modelVersion),
+  ));
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Patient persistence

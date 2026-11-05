@@ -4,8 +4,8 @@ Loads and caches all artefacts required for inference.
 
 Strategy
 --------
-Primary:   joblib file  (preserves sklearn wrapper + feature_importances_)
-Fallback:  native XGBoost JSON (model.load_model) if joblib is absent.
+Primary: native XGBoost JSON, verified against the model specification.
+Fallback: joblib for legacy bundles without a native model or a model hash.
 
 The ModelBundle is a frozen dataclass so callers can never accidentally
 mutate it. All paths come from app.config – no magic strings here.
@@ -14,7 +14,8 @@ mutate it. All paths come from app.config – no magic strings here.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,7 @@ class ModelBundle:
     """All artefacts needed for a single inference run.
 
     Attributes:
-        model:            Fitted XGBClassifier ready for predict_proba().
+        model:            Fitted binary XGBoost booster ready for inference.
         features:         Ordered list of 32 feature names (model input order).
         imputation:       Dict mapping feature name \u2192 median/mode impute value.
         spec:             Full preprocessing spec dict from JSON.
@@ -76,7 +77,7 @@ class ModelBundle:
         continuous_vars:  Feature names treated as continuous.
     """
 
-    model: xgb.XGBClassifier
+    model: xgb.Booster
     features: list[str]
     imputation: dict[str, float]
     spec: dict[str, Any]
@@ -91,8 +92,24 @@ class ModelBundle:
 # Internal helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _load_model(joblib_path: Path, json_path: Path) -> xgb.XGBClassifier:
-    """Load XGBClassifier preferring joblib, falling back to native JSON."""
+def _verify_sha256(path: Path, expected: str | None) -> None:
+    if expected and sha256(path.read_bytes()).hexdigest() != expected:
+        raise ValueError(f"{path.name} does not match the PULSAR bundle specification.")
+
+
+def _load_model(
+    joblib_path: Path, json_path: Path, expected_sha256: str | None
+) -> xgb.Booster:
+    """Load the native model, with a joblib fallback for unversioned bundles."""
+    if json_path.is_file():
+        _verify_sha256(json_path, expected_sha256)
+        logger.info("Loading model from native XGBoost JSON: %s", json_path)
+        booster = xgb.Booster()
+        booster.load_model(str(json_path))
+        return booster
+    if expected_sha256:
+        raise FileNotFoundError(f"Versioned PULSAR bundle requires {json_path}")
+
     if joblib_path.is_file():
         import joblib  # lazy import – not needed if only JSON path is used
         logger.info("Loading model from joblib: %s", joblib_path)
@@ -101,13 +118,7 @@ def _load_model(joblib_path: Path, json_path: Path) -> xgb.XGBClassifier:
             raise TypeError(
                 f"Expected XGBClassifier in joblib, got {type(clf).__name__}"
             )
-        return clf
-
-    if json_path.is_file():
-        logger.info("Joblib not found; loading model from JSON: %s", json_path)
-        clf = xgb.XGBClassifier()
-        clf.load_model(str(json_path))
-        return clf
+        return clf.get_booster()
 
     raise FileNotFoundError(
         f"Model file not found. Tried:\n  {joblib_path}\n  {json_path}"
@@ -115,7 +126,7 @@ def _load_model(joblib_path: Path, json_path: Path) -> xgb.XGBClassifier:
 
 
 def _get_feature_importances(
-    model: xgb.XGBClassifier,
+    model: xgb.Booster,
     features: list[str],
 ) -> np.ndarray:
     """Return per-feature gain importances aligned to the *features* list.
@@ -123,8 +134,7 @@ def _get_feature_importances(
     Falls back to uniform importances if the booster does not expose scores.
     """
     try:
-        booster: xgb.Booster = model.get_booster()
-        scores: dict[str, float] = booster.get_score(importance_type="gain")
+        scores: dict[str, float] = model.get_score(importance_type="gain")
         # XGBoost names features f0, f1, … when trained via numpy arrays,
         # unless feature_names were set explicitly.
         importances = np.zeros(len(features), dtype=float)
@@ -309,21 +319,18 @@ def load_model_bundle(*, force_reload: bool = False) -> ModelBundle:
         return _cached_bundle
 
     # ── Load artefacts ────────────────────────────────────────────────────────
+    spec: dict[str, Any] = load_json(PREPROCESSING_SPEC)
+    _verify_sha256(IMPUTATION_FILE, spec.get("imputation_sha256"))
     features_list: list[str] = load_json(FEATURES_FILE)
     imputation_map: dict[str, float] = {
         k: float(v) for k, v in load_json(IMPUTATION_FILE).items()
     }
-    spec: dict[str, Any] = load_json(PREPROCESSING_SPEC)
     risk_groups_raw: dict[str, list[float]] = load_json(RISK_GROUPS_FILE)
 
     # ── Validate ──────────────────────────────────────────────────────────────
     spec_features: list[str] = spec.get("features", [])
     if spec_features and spec_features != features_list:
-        logger.warning(
-            "features.json and preprocessing_spec.json feature lists differ; "
-            "using preprocessing_spec.json order."
-        )
-        features_list = spec_features
+        raise ValueError("Feature order differs between the feature list and preprocessing specification.")
 
     n_expected: int = spec.get("n_features", len(features_list))
     if len(features_list) != n_expected:
@@ -332,8 +339,17 @@ def load_model_bundle(*, force_reload: bool = False) -> ModelBundle:
             f"but features list has {len(features_list)}."
         )
 
+    if set(imputation_map) != set(features_list) or not all(
+        np.isfinite(value) for value in imputation_map.values()
+    ):
+        raise ValueError("Imputation defaults must contain one finite value for each model feature.")
+
     # ── Load model ────────────────────────────────────────────────────────────
-    model = _load_model(MODEL_JOBLIB, MODEL_JSON)
+    model = _load_model(MODEL_JOBLIB, MODEL_JSON, spec.get("model_sha256"))
+    if model.num_features() != len(features_list) or (
+        model.feature_names is not None and model.feature_names != features_list
+    ):
+        raise ValueError("XGBoost features do not match the preprocessing feature order.")
 
     # ── Build aligned feature importances ─────────────────────────────────────
     fi = _get_feature_importances(model, features_list)
@@ -354,7 +370,8 @@ def load_model_bundle(*, force_reload: bool = False) -> ModelBundle:
     )
     _cached_bundle = bundle
     logger.info(
-        "ModelBundle loaded successfully. Features: %d, Risk groups: %d",
+        "PULSAR bundle loaded. Version: %s, features: %d, risk groups: %d",
+        spec.get("model_version", "legacy"),
         len(features_list),
         len(risk_groups),
     )

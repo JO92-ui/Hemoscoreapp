@@ -143,6 +143,8 @@ class MetadataResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     model_name: str
+    model_version: str | None = None
+    model_sha256: str | None = None
     api_version: str
     n_features: int
     features: list[str]

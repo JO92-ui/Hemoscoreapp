@@ -1,6 +1,7 @@
 {
   "model_name": "PULSAR XGBoost final clinical super",
-  "dataset_path": "/content/drive/MyDrive/CalculadoraITAMEX hemodinamica/Modelo Final 02/feature_engineered_datasets_final/stack_feat_imp_9.pkl",
+  "model_version": "pulsar-modelo03-retrospective",
+  "dataset_path": "feature_engineered_datasets_final/stack_feat_imp_9.pkl",
   "target": "In-hospital death",
   "n_features": 32,
   "features": [
@@ -76,22 +77,22 @@
     "base_creatinine"
   ],
   "imputation": {
-    "hr_pacath": 92.0,
-    "cpi_rap_pacath": 0.34505312475179184,
+    "hr_pacath": 91.9440767001952,
+    "cpi_rap_pacath": 0.34355996407839073,
     "lactate": 1.9,
-    "pawp_pacath": 17.463605060565627,
+    "pawp_pacath": 17.446904349073606,
     "rap_pacath": 11.0,
-    "opp_pacath": 70.7700064226371,
+    "opp_pacath": 66.66666666666667,
     "hr_pacath_delta": 0.0,
     "cpi_rap_pacath_delta": 0.0,
-    "lactate_delta": -0.0699999999999999,
+    "lactate_delta": -0.09999999999999964,
     "pawp_pacath_delta": 0.0,
     "rap_pacath_delta": 0.0,
     "opp_pacath_delta": 0.0,
     "hr_pacath_tot_hours": 0.0,
     "cpi_rap_pacath_tot_hours": 0.0,
-    "lactate_tot_hours": 5.047692307692308,
-    "pawp_pacath_tot_hours": 3.4016151463494335,
+    "lactate_tot_hours": 5.333620275506739,
+    "pawp_pacath_tot_hours": 3.0,
     "rap_pacath_tot_hours": 2.0,
     "opp_pacath_tot_hours": 0.0,
     "base_age_years": 63.12054794520548,
@@ -140,5 +141,17 @@
     "eval_metric": "logloss",
     "scale_pos_weight": 1.7629310344827587,
     "random_state": 42
-  }
+  },
+  "provenance": {
+    "study_revision": "Modelo 03",
+    "xgboost_version": "3.2.0",
+    "training_strategy": "single full-cohort research model",
+    "imputation_index": 9,
+    "landmark_rows": 3846,
+    "outcome_rows": 1392,
+    "feature_data_sha256": "c6a8a514eec61da7294d9c46ef3c42c31ac77bc36197b60d497e6c0248239e23",
+    "variable_map_sha256": "5d7b348c7e7267bac3af8e7a75d1293d05a76d5fb1d828b46b0020c8f709e6e0"
+  },
+  "model_sha256": "7130e66636d7fd6e6dea19e1cc37a5df301ae334fe3380b83a64689a8a704105",
+  "imputation_sha256": "1662cf38f52d956c7bdb86a02c7b8e0d67915ceff49231f5f958f70cae5c42d5"
 }

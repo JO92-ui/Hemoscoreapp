@@ -10,6 +10,7 @@ import {
   TP_LABELS,
   VAR_META,
   THRESHOLDS,
+  isOffTarget,
   computeAll,
   computeScaiDerived,
   getSupportAtTimepoint,
@@ -210,7 +211,7 @@ export default function SeriesPanel({
             Support Devices
           </span>
           <span className="ml-auto text-[10px] text-slate-600">
-            Activation propagates forward automatically
+            Model uses support recorded across the episode
           </span>
         </div>
         <div className="overflow-x-auto">
@@ -336,11 +337,7 @@ export default function SeriesPanel({
                 const meta  = VAR_META[v];
                 const thr   = THRESHOLDS[v];
                 const d     = derived[v];
-                const isOff =
-                  d.current !== null &&
-                  (thr.direction === "max"
-                    ? d.current >= thr.value
-                    : d.current < thr.value);
+                const isOff = d.current !== null && isOffTarget(d.current, thr);
 
                 return (
                   <tr key={v} className="hover:bg-[#0d2035]/40 transition-colors group">
@@ -357,6 +354,12 @@ export default function SeriesPanel({
                       <p className="mt-1 text-[10px] leading-none text-slate-600">
                         {thr.goalLabel}
                       </p>
+                      {v === "opp" && (
+                        <p className="mt-1 text-[10px] leading-tight text-slate-500"
+                          title="Use recorded OPP when available. To reconstruct missing OPP, calculate MAP as (SBP + 2 × DBP) / 3 and subtract RAP.">
+                          If missing, use MAP − RAP
+                        </p>
+                      )}
                     </td>
                     {TIMEPOINTS.map((tp) => (
                       <td key={tp} className="px-1.5 py-2.5 text-center">

@@ -183,6 +183,9 @@ export default function TimepointRisksPanel({
 
       {/* Footer note */}
       <div className="border-t border-[#1a3a57] px-5 py-2 bg-[#07111e]/50">
+        <p className="text-[10px] text-slate-400">
+          Retrospective estimates use the same 48-hour maximum SCAI and episode support at every assessment.
+        </p>
         <p className="text-[10px] text-slate-600">
           Click a row to select &middot; All deltas vs Baseline &middot; pp = percentage points
         </p>

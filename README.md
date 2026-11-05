@@ -2,7 +2,7 @@
 
 > **PULSAR XGBoost** — Cardiogenic Shock In-Hospital Mortality Risk Calculator
 
-A local, offline-capable clinical decision-support tool for estimating in-hospital mortality risk in cardiogenic shock patients, powered by the PULSAR XGBoost model developed by the **ITA-MEX Collaborative Group**.
+A local, offline research prototype for exploring retrospective in-hospital mortality estimates in cardiogenic shock, based on the PULSAR XGBoost model developed by the **ITA-MEX Collaborative Group**.
 
 ---
 
@@ -84,6 +84,20 @@ The app will open automatically in your default web browser at `http://localhost
 HEMOSCOREAPP is provided **for research and educational purposes only**. It is **not** a certified medical device and has **not** received regulatory clearance (FDA, CE, COFEPRIS, or equivalent). It must not be used as the sole or primary basis for clinical decisions. All predictions must be interpreted by qualified medical personnel in conjunction with full clinical assessment.
 
 See the **Disclosures** tab within the application for the complete ITA-MEX disclaimer.
+
+The corrected PULSAR bundle follows the original application export procedure: a
+single full-cohort fit on corrected imputation 9, with the same feature order and
+XGBoost settings. The manuscript's held-out estimates come from separate
+validation fits across centers and imputations. Earlier scores in the app use
+episode-level support and the maximum SCAI stage in the first 48 hours, as in the
+retrospective model. Missing app inputs use bundle medians or modes. The
+application does not reproduce the study's longitudinal multiple imputation.
+
+Use the export cell in the [Modelo 03 Colab](https://colab.research.google.com/drive/1JeB0AjFCsCjON8ahw1p0wgfhiGLxsI87)
+after preparing the corrected branch. The cell runs [the export script](scripts/export_pulsar.py)
+with the corrected feature stack and resolved variable map. It writes model
+weights and metadata to the export folder. The API reports the bundle version
+and native model hash at `GET /metadata`.
 
 ---
 

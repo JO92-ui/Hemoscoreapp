@@ -1,5 +1,5 @@
 /**
- * Rich multi-timepoint test case for UI demonstration.
+ * Synthetic multi-timepoint case for UI demonstration.
  *
  * Clinical scenario: 63-year-old male, AMI-CS, SCAI C on admission.
  * Typical trajectory: initial deterioration to SCAI D at 6–12 h,
@@ -9,7 +9,7 @@
  *
  * Clinical thresholds (for reference):
  *   HR        ≥ 100 bpm     → bad
- *   CPI/RAP   < 0.28        → bad
+ *   CPI-RAP   ≤ 0.28 W/m²   → off target
  *   Lactate   ≥ 2.0 mmol/L  → bad
  *   PAWP      ≥ 18 mmHg     → bad
  *   RAP       ≥ 12 mmHg     → bad
