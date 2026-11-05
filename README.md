@@ -39,10 +39,7 @@ Assets
 
 ### Step 3 — Extract the ZIP
 
-| OS | How to extract |
-|---|---|
-| **Windows** | Right-click the `.zip` file → **Extract All…** → choose a destination → click **Extract** |
-| **macOS** | Double-click the `.zip` file — macOS extracts it automatically |
+On Windows, right-click the `.zip` file, choose **Extract All…**, and select a destination.
 
 > 💡 **Tip:** Extract to a permanent folder (e.g. `Documents\HEMOSCOREAPP`), not directly from inside the ZIP.
 
@@ -61,9 +58,7 @@ Inside the extracted folder, double-click **`HEMOSCOREAPP.exe`**:
 
 The app will open automatically in your default web browser at `http://localhost:8000`.
 
-> ⚠️ **Windows SmartScreen warning?** If Windows shows *"Windows protected your PC"*, click **More info** → **Run anyway**. This is expected for unsigned executables and is safe.
-
-> ⚠️ **Antivirus alert?** Some antivirus programs flag PyInstaller-packaged `.exe` files as suspicious. This is a false positive. You can verify the file via the [VirusTotal link in the release notes](https://github.com/JO92-ui/Hemoscoreapp/releases/latest) if needed.
+The Windows executable is unsigned. The GitHub release notes include the ZIP's SHA-256 checksum so you can verify the download.
 
 ---
 
@@ -84,6 +79,8 @@ The app will open automatically in your default web browser at `http://localhost
 HEMOSCOREAPP is provided **for research and educational purposes only**. It is **not** a certified medical device and has **not** received regulatory clearance (FDA, CE, COFEPRIS, or equivalent). It must not be used as the sole or primary basis for clinical decisions. All predictions must be interpreted by qualified medical personnel in conjunction with full clinical assessment.
 
 See the **Disclosures** tab within the application for the complete ITA-MEX disclaimer.
+
+Use **Synthetic examples** in the app to explore three fictional 48-hour trajectories: recovery after initial worsening, stable haemodynamics, and progressive deterioration.
 
 The corrected PULSAR bundle follows the original application export procedure: a
 single full-cohort fit on corrected imputation 9, with the same feature order and
@@ -329,7 +326,7 @@ The output is `dist\HEMOSCOREAPP_WEB\` (a folder, **not** a single file).
 1. Unzip the archive anywhere (e.g. `C:\HEMOSCOREAPP_WEB\`).
 2. Double-click **`HEMOSCOREAPP.exe`** inside that folder.
 3. The app opens automatically in the default browser at `http://localhost:8000`.
-4. Close the terminal window (or the exe in the system tray) to shut down the server.
+4. To stop the server, end `HEMOSCOREAPP.exe` in Windows Task Manager.
 
 > No Python, Node.js, or any other software needs to be installed on the client machine.
 

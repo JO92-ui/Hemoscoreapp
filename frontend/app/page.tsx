@@ -14,7 +14,7 @@ import BaselineReview from "@/components/baseline-review";
 import InfluencePanel from "@/components/influence-panel";
 import TimepointRisksPanel from "@/components/timepoint-risks-panel";
 import { fetchMetadata, predict, compare } from "@/lib/api";
-import { makeTestCaseSeries, makeTestCaseScai, makeTestCaseSupportSeries, TEST_CASE_CLINICAL } from "@/lib/test-case";
+import { makeSyntheticCase, SYNTHETIC_CASES, type SyntheticCaseId } from "@/lib/test-case";
 import {
   emptySeriesState,
   emptyScaiValues,
@@ -524,57 +524,6 @@ export default function HomePage() {
     return false;
   }, [state.series, state.scai, state.clinicalInputs, state.baselineRaw, state.baseline]);
 
-  // ── Load test case ────────────────────────────────────────────────────────
-  const handleLoadTestCase = useCallback(async () => {
-    if (!modelVersion) {
-      dispatch({ type: "SET_ERROR", payload: "The active model version is unavailable. Reload the dashboard and try again." });
-      return;
-    }
-    const session = patientSession.current;
-    dispatch({ type: "LOADING", action: "testcase" });
-    try {
-      // Populate form with rich 5-timepoint test case
-      const newSeries      = makeTestCaseSeries();
-      const newScai        = makeTestCaseScai();
-      const clinicalInputs = { ...TEST_CASE_CLINICAL };
-      const newSupport     = makeTestCaseSupportSeries();
-
-      dispatch({ type: "SET_CLINICAL", payload: clinicalInputs });
-      dispatch({ type: "SET_SCAI",     payload: newScai });
-      dispatch({ type: "SET_SERIES",   payload: newSeries });
-      dispatch({ type: "SET_SUPPORT",  payload: newSupport });
-
-      // Predict from the rich inputs and auto-save baseline
-      const allInputs = buildFeatureMap(newSeries, newScai, clinicalInputs, newSupport);
-      const result    = await predict(allInputs, true);
-      if (session !== patientSession.current) return;
-      checkPredictionVersion(result, modelVersion);
-      dispatch({ type: "SET_RESULT", payload: result });
-
-      const snap: BaselineSnapshot = {
-        featureMap:     result.feature_dict,
-        clinicalInputs: { ...clinicalInputs },
-        rawInputs:      buildBaselineRaw(newSeries, newScai, clinicalInputs),
-        risk:           result.risk_result,
-        savedAt:        new Date().toISOString(),
-        modelVersion:   result.model_version,
-      };
-      dispatch({ type: "SET_BASELINE", payload: snap });
-
-      // Compute per-timepoint risks in parallel
-      const tpRisks = await buildTimepointRisks(newSeries, newScai, clinicalInputs, newSupport, modelVersion);
-      if (session === patientSession.current && Object.keys(tpRisks).length > 0) {
-        dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
-      }
-    } catch (e: unknown) {
-      if (session === patientSession.current) {
-        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
-      }
-    } finally {
-      if (session === patientSession.current) dispatch({ type: "DONE_LOADING" });
-    }
-  }, [modelVersion]);
-
   // ── Calculate Risk ────────────────────────────────────────────────────────
   // • No baseline yet  → predict + auto-save baseline
   // • Baseline exists  → compare automatically (shows directionality)
@@ -747,28 +696,38 @@ export default function HomePage() {
     if (autosaveRef.current) clearTimeout(autosaveRef.current);
 
     const hasData =
+      !!(patientName || hospitalId || notes) ||
       TIMEPOINTS.some((tp) => hasDataAtTimepoint(state.series, tp)) ||
+      Object.values(state.scai).some((v) => v !== null) ||
+      Object.values(state.support).some((series) => Object.values(series).some((v) => v !== null)) ||
       Object.values(state.clinicalInputs).some((v) => v !== null)   ||
-      !!state.baseline;
+      !!state.baseline || !!state.currentResult || Object.keys(state.timepointRisks).length > 0;
 
     if (hasData) {
-      await patientDB.save({
-        patient_id:      patientId,
-        patient_name:    patientName,
-        hospital_id:     hospitalId,
-        created_at:      patientCreatedAt.current,
-        updated_at:      new Date().toISOString(),
-        notes,
-        series:          state.series,
-        scai:            state.scai,
-        support:         state.support,
-        clinical_inputs: state.clinicalInputs,
-        baseline:        state.baseline,
-        baseline_raw:    state.baselineRaw,
-        timepoint_risks: state.timepointRisks,
-        current_result:  state.currentResult,
-        selected_tp:     selectedTp,
-      }).catch(() => {});
+      try {
+        await patientDB.save({
+          patient_id:      patientId,
+          patient_name:    patientName,
+          hospital_id:     hospitalId,
+          created_at:      patientCreatedAt.current,
+          updated_at:      new Date().toISOString(),
+          notes,
+          series:          state.series,
+          scai:            state.scai,
+          support:         state.support,
+          clinical_inputs: state.clinicalInputs,
+          baseline:        state.baseline,
+          baseline_raw:    state.baselineRaw,
+          timepoint_risks: state.timepointRisks,
+          current_result:  state.currentResult,
+          selected_tp:     selectedTp,
+        });
+      } catch {
+        if (session === patientSession.current) {
+          dispatch({ type: "SET_ERROR", payload: "Could not save the current session. Try saving it again before opening a new session." });
+        }
+        return;
+      }
     }
 
     if (session !== patientSession.current) return;
@@ -781,8 +740,57 @@ export default function HomePage() {
     setSaveStatus("idle");
     setLastSavedAt(null);
     patientCreatedAt.current = new Date().toISOString();
+    return session;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, selectedTp, patientId, patientName, hospitalId, notes]);
+
+  // Load a synthetic example into a separate session, using the same model as real inputs.
+  const handleLoadSyntheticCase = useCallback(async (id: SyntheticCaseId) => {
+    if (!modelVersion) {
+      dispatch({ type: "SET_ERROR", payload: "The active model version is unavailable. Reload the dashboard and try again." });
+      return;
+    }
+    const session = await handleNewPatient();
+    if (session === undefined || session !== patientSession.current) return;
+
+    dispatch({ type: "LOADING", action: "testcase" });
+    try {
+      const { series, scai, support, clinicalInputs } = makeSyntheticCase(id);
+      const label = SYNTHETIC_CASES.find((item) => item.id === id)?.label;
+      setPatientName(label ? `Synthetic example · ${label}` : "Synthetic example");
+      dispatch({ type: "SET_CLINICAL", payload: clinicalInputs });
+      dispatch({ type: "SET_SCAI", payload: scai });
+      dispatch({ type: "SET_SERIES", payload: series });
+      dispatch({ type: "SET_SUPPORT", payload: support });
+
+      const result = await predict(buildFeatureMap(series, scai, clinicalInputs, support), true);
+      if (session !== patientSession.current) return;
+      checkPredictionVersion(result, modelVersion);
+      dispatch({ type: "SET_RESULT", payload: result });
+      dispatch({
+        type: "SET_BASELINE",
+        payload: {
+          featureMap: result.feature_dict,
+          clinicalInputs: { ...clinicalInputs },
+          rawInputs: buildBaselineRaw(series, scai, clinicalInputs),
+          risk: result.risk_result,
+          savedAt: new Date().toISOString(),
+          modelVersion: result.model_version,
+        },
+      });
+
+      const tpRisks = await buildTimepointRisks(series, scai, clinicalInputs, support, modelVersion);
+      if (session === patientSession.current && Object.keys(tpRisks).length > 0) {
+        dispatch({ type: "SET_TIMEPOINT_RISKS", payload: tpRisks });
+      }
+    } catch (e: unknown) {
+      if (session === patientSession.current) {
+        dispatch({ type: "SET_ERROR", payload: e instanceof Error ? e.message : "Unknown error" });
+      }
+    } finally {
+      if (session === patientSession.current) dispatch({ type: "DONE_LOADING" });
+    }
+  }, [handleNewPatient, modelVersion]);
 
   // ── Delete current patient ────────────────────────────────────────────────
   const handleDeleteCurrentPatient = useCallback(async () => {
@@ -1070,7 +1078,7 @@ export default function HomePage() {
               loadingAction={state.loadingAction}
               onClinicalChange={handleClinicalChange}
               onCalculateRisk={handleCalculateRisk}
-              onLoadTestCase={handleLoadTestCase}
+              onLoadSyntheticCase={handleLoadSyntheticCase}
               onReset={handleReset}
             />
           </div>
@@ -1132,7 +1140,7 @@ export default function HomePage() {
                 <p className="text-sm font-medium text-slate-300">
                   {state.loadingAction === "predict"  && "Running inference…"}
                   {state.loadingAction === "compare"  && "Comparing vs baseline…"}
-                  {state.loadingAction === "testcase" && "Loading test case…"}
+                  {state.loadingAction === "testcase" && "Loading synthetic example…"}
                 </p>
                 <p className="mt-1 text-xs text-slate-600">PULSAR XGBoost · 32 features</p>
               </div>
